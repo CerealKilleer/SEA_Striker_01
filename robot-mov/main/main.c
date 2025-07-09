@@ -56,6 +56,23 @@ void app_main(void)
 
     extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
 
+    ///<---------------- Initialize the Wifi ----------------
+
+
+    // Nelson aqui deberias llamar primero wifi_init_station() y luego start_server()
+ 
+    // en los handlers que puse en wifi_lib.c deberias implementar la logica de movimiento del robot con las estructuras o lo que se te haya ocurrido
+    // recuerde cambiar la clabve de wifi y el nombre de la red wifi en wifi_lib.h, cualquier cosa me avisa para ayudarle, no compile el proyecto porque a mi me tira errores
+    // muy raros, supongo que a vos que te compila este archivo sin problema no te pondrá problemas, igual me avisa si pasa algo, lo que agregué esta probado en entorno cerrado,
+    // no sé si al agregarlo aqui haya roto algo, ojalá no.
+
+    
+
+    dev_wifi_init(); ///< Initialize the WiFi in soft Access Point mode
+    start_server(); ///< Start the HTTP server
+
+    ///<----------------------------------------------------
+
     ///<-------------- Initialize the VL53L1X sensor -----
     // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
     //     ESP_LOGE(TAG_VL53L1X, "Could not initialize VL53L1X sensor...");
@@ -144,7 +161,7 @@ void app_main(void)
         .pid_block = &pidR,
         .pwm_motor = &pwmR,
         .predef_move = 0, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 0 ///< Velocity selection for the robot, can be set later
+        .vel_selection = 2 ///< Velocity selection for the robot, can be set later
     };
 
     static control_params_t left_control_params = {
@@ -153,7 +170,7 @@ void app_main(void)
         .pid_block = &pidL,
         .pwm_motor = &pwmL,
         .predef_move = 1, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 1 ///< Velocity selection for the robot, can be set later
+        .vel_selection = 0 ///< Velocity selection for the robot, can be set later
     };
 
     static control_params_t back_control_params = {
@@ -162,7 +179,7 @@ void app_main(void)
         .pid_block = &pidB,
         .pwm_motor = &pwmB,
         .predef_move = 2, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 2 ///< Velocity selection for the robot, can be set later
+        .vel_selection = 1 ///< Velocity selection for the robot, can be set later
     };
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 1 second to ensure all peripherals are initialized

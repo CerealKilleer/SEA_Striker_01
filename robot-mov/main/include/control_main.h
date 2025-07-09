@@ -14,6 +14,7 @@
 #include "pid_ext.h"
 #include "sensor_fusion.h"
 #include "mov_calculation.h"
+#include "wifi_lib.h"
 
 // Include ESP IDF libraries
 #include <assert.h>
