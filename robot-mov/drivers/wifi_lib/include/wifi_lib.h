@@ -22,10 +22,9 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-#define AP_SSID "esp32"
-#define AP_PASSWORD "sanchez06"
-#define MAX_STA_CONN 4
-#define LED_GPIO GPIO_NUM_48
+#define STA_SSID "Howlers - UdeA"
+#define STA_PASSWORD "9876543210"
+
 
 
 typedef enum {
@@ -36,12 +35,14 @@ typedef enum {
 
 typedef struct from_wifi_t
 {
-    movement_type_t type;
-    uint8_t direction;
-    uint8_t degrees;
-    uint8_t velocity;
-    uint8_t distance;
-    uint8_t radius;
+    movement_type_t type; ///< Type of movement command
+    bool recived;         ///< Flag to indicate if a command has been received
+
+    bool direction;      ///< Direction of movement (0: backward, 1: forward; 0: ccw, 3: cw)
+    float degrees;        ///< Degrees of rotation (0-360)
+    float velocity;       ///< Velocity of movement cm/s
+    float distance;       ///< Distance for line movement cm 
+    float radius;         ///< Radius for circular movement cm
 } from_wifi_t;
 
 

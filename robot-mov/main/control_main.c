@@ -151,6 +151,8 @@ void vTaskControl( void * pvParameters ){
     float est_velocity = 0.0f, last_est_velocity = 0.0f;
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
+    float setpoint = 0.0f * 1000;
+    float x_vel = 0.0f, y_vel = 0.0f; ///< Initialize setpoint and generalized velocities
 
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
@@ -167,29 +169,43 @@ void vTaskControl( void * pvParameters ){
         // est_velocity = beta * last_est_velocity + (1 - beta) * est_velocity; ///< Apply low-pass filter to the estimated velocity when there is more than one sensor
         last_est_velocity = est_velocity; ///< Update the last estimated velocity
 
-        if (move && (counter % 3000 == 0)) { ///< Every 3 seconds
-            int idx = counter / 3000;
-            float setpoint = 0.0f, x_vel = 0.0f, y_vel = 0.0f; ///< Initialize setpoint and generalized velocities
-            if (idx < 8) {
-                // Calculate the setpoint based on the predefined movements
-                linear_movement(forward_mov[idx], linear_velocity[idx], angle[idx], &x_vel, &y_vel); ///< Calculate the setpoint based on the predefined movements
-                cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
-                if (pid_update_set_point(pid_block, setpoint / 1000.0) != PID_OK) {
-                    ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-                } else {
-                    ESP_LOGW(task_name, "Set point value changed to %.2f", setpoint / 1000.0);
-                }
-            } else {
-                // Stop moving after last setpoint
-                pid_update_set_point(pid_block, 0.0f);
-                move = false;
-                // ESP_LOGW(task_name, "Finished movement sequence, stopping.");
-            }
+        circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement for the right and left wheels
+        cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+
+        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
+            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
         }
 
-        if (move) {
-            counter += SAMPLE_TIME;
-        }
+        // if (move && (counter % 3000 == 0)) { ///< Every 3 seconds
+        //     int idx = counter / 3000;
+        //     float setpoint = 0.0f, x_vel = 0.0f, y_vel = 0.0f; ///< Initialize setpoint and generalized velocities
+        //     if (idx < 8) {
+        //         // Calculate the setpoint based on the predefined movements
+        //         linear_movement(forward_mov[idx], linear_velocity[idx], angle[idx], &x_vel, &y_vel); ///< Calculate the setpoint based on the predefined movements
+        //         cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+        //         if (pid_update_set_point(pid_block, setpoint / 1000.0) != PID_OK) {
+        //             ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
+        //         } else {
+        //             ESP_LOGW(task_name, "Set point value changed to %.2f", setpoint / 1000.0);
+        //         }
+        //     } else {
+        //         // Stop moving after last setpoint
+        //         pid_update_set_point(pid_block, 0.0f);
+        //         move = false;
+        //         // ESP_LOGW(task_name, "Finished movement sequence, stopping.");
+        //     }
+        // }
+
+        // if (move) {
+        //     counter += SAMPLE_TIME;
+        // }
+
+        // linear_movement(1, 15, 45, &x_vel, &y_vel); ///< Calculate the setpoint based on the predefined movements
+        // cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+
+        // if (pid_update_set_point(pid_block, setpoint / 1000) != PID_OK) {
+        //     ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
+        // }
 
         // Update PID Controller
         pid_compute(pid_block, est_velocity, &output);

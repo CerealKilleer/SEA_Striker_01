@@ -54,24 +54,7 @@ void app_main(void)
     static bldc_pwm_motor_t pwmR, pwmL, pwmB;   ///< BLDC motor object right, left and back
     static pid_block_handle_t pidR, pidL, pidB; ///< PID control block handle
 
-    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
-
-    ///<---------------- Initialize the Wifi ----------------
-
-
-    // Nelson aqui deberias llamar primero wifi_init_station() y luego start_server()
- 
-    // en los handlers que puse en wifi_lib.c deberias implementar la logica de movimiento del robot con las estructuras o lo que se te haya ocurrido
-    // recuerde cambiar la clabve de wifi y el nombre de la red wifi en wifi_lib.h, cualquier cosa me avisa para ayudarle, no compile el proyecto porque a mi me tira errores
-    // muy raros, supongo que a vos que te compila este archivo sin problema no te pondrá problemas, igual me avisa si pasa algo, lo que agregué esta probado en entorno cerrado,
-    // no sé si al agregarlo aqui haya roto algo, ojalá no.
-
-    
-
-    dev_wifi_init(); ///< Initialize the WiFi in soft Access Point mode
-    start_server(); ///< Start the HTTP server
-
-    ///<----------------------------------------------------
+    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels    
 
     ///<-------------- Initialize the VL53L1X sensor -----
     // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
@@ -211,9 +194,9 @@ void app_main(void)
     }
 
     ESP_LOGI("TASKS", "Right encoder handle: 0x%04X", gAs5600R.out); ///< Log the task handles
-    xTaskCreatePinnedToCore(vTaskEncoder, "right_encoder_task", 2048, &right_control_params, 8, &xRightEncoderTaskHandle, 0); ///< Create the task to read from right encoder
-    xTaskCreatePinnedToCore(vTaskEncoder, "left_encoder_task", 2048, &left_control_params, 8, &xLeftEncoderTaskHandle, 0);    ///< Create the task to read from left encoder
-    xTaskCreatePinnedToCore(vTaskEncoder, "back_encoder_task", 2048, &back_control_params, 8, &xBackEncoderTaskHandle, 0);    ///< Create the task to read from back encoder
+    xTaskCreatePinnedToCore(vTaskEncoder, "right_encoder_task", 4096, &right_control_params, 8, &xRightEncoderTaskHandle, 0); ///< Create the task to read from right encoder
+    xTaskCreatePinnedToCore(vTaskEncoder, "left_encoder_task", 4096, &left_control_params, 8, &xLeftEncoderTaskHandle, 0);    ///< Create the task to read from left encoder
+    xTaskCreatePinnedToCore(vTaskEncoder, "back_encoder_task", 4096, &back_control_params, 8, &xBackEncoderTaskHandle, 0);    ///< Create the task to read from back encoder
 
     configASSERT(xRightEncoderTaskHandle); ///< Check if the task was created successfully
     if (xRightEncoderTaskHandle == NULL) {
@@ -244,6 +227,23 @@ void app_main(void)
     //     ESP_LOGE("LIDAR_TASK", "Failed to create task...");
     //     return;
     // }
+
+    ///<---------------- Initialize the Wifi ----------------
+
+
+    // Nelson aqui deberias llamar primero wifi_init_station() y luego start_server()
+ 
+    // en los handlers que puse en wifi_lib.c deberias implementar la logica de movimiento del robot con las estructuras o lo que se te haya ocurrido
+    // recuerde cambiar la clabve de wifi y el nombre de la red wifi en wifi_lib.h, cualquier cosa me avisa para ayudarle, no compile el proyecto porque a mi me tira errores
+    // muy raros, supongo que a vos que te compila este archivo sin problema no te pondrá problemas, igual me avisa si pasa algo, lo que agregué esta probado en entorno cerrado,
+    // no sé si al agregarlo aqui haya roto algo, ojalá no.
+
+    
+
+    // dev_wifi_init(); ///< Initialize the WiFi in soft Access Point mode
+    // start_server(); ///< Start the HTTP server
+
+    ///<----------------------------------------------------
 
     
     ///<-------------------------------------------------

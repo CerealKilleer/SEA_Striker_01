@@ -1,40 +1,46 @@
 #include "wifi_lib.h"
 
+from_wifi_t from_wifi = {
+    .type = LINE_MOVEMENT,
+    .recived = false, // Inicializar como no recibido
+    .direction = 0.0,
+    .degrees = 0.0,
+    .velocity = 0.0,
+    .distance = 0.0,
+    .radius = 0.0
+};
+
 esp_err_t dev_wifi_init(void) {
     ESP_LOGI("wifi lib", "Inicializando WiFi en modo Access Point...");
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
-        ESP_ERROR_CHECK(nvs_flash_init());
+        ret = nvs_flash_init();
     }
+
 
     esp_netif_init();
     esp_event_loop_create_default();
-    esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
 
     wifi_config_t wifi_config = {
-        .ap = {
-            .ssid = AP_SSID,
-            .ssid_len = strlen(AP_SSID),
-            .password = AP_PASSWORD,
-            .max_connection = MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
+        .sta = {
+            .ssid = STA_SSID,
+            .password = STA_PASSWORD,
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
 
-    if (strlen(AP_PASSWORD) == 0) {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-
-    esp_wifi_set_mode(WIFI_MODE_AP);
-    esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     esp_wifi_start();
 
-    ESP_LOGI("Wifi lib", "AP iniciado. SSID: %s | Password: %s", AP_SSID, AP_PASSWORD);
+    ESP_LOGI("WIFI STATION", "Conecting to %s...", STA_SSID);
+    esp_wifi_connect();
     
     return ESP_OK;
 }
@@ -103,6 +109,14 @@ esp_err_t line_movement_handler(httpd_req_t *req) {
             ESP_LOGI("Wifi lib", "Velocity: %s", velocity);
             ESP_LOGI("Wifi lib", "Distance: %s", distance);
 
+            // Convertir los parámetros a float y asignarlos a from_wifi
+            from_wifi.type = LINE_MOVEMENT;
+            from_wifi.recived = true; // Indicar que se ha recibido un comando
+            from_wifi.direction = (strcmp(direction, "Backward") == 0) ? 0 : 1; // 0: backward, 1: forward
+            from_wifi.degrees = atof(degrees);
+            from_wifi.velocity = atof(velocity);
+            from_wifi.distance = atof(distance);
+
             httpd_resp_sendstr(req, "Command received");
             return ESP_OK;
         } else {
@@ -144,6 +158,15 @@ esp_err_t circular_movement_handler(httpd_req_t *req) {
             ESP_LOGI("Wifi lib", "Velocity: %s", velocity);
             ESP_LOGI("Wifi lib", "Radius: %s", radius);
 
+            // Convertir los parámetros a float y asignarlos a from_wifi
+            from_wifi.type = CIRCULAR_MOVEMENT;
+            from_wifi.recived = true; // Indicar que se ha recibido un comando
+            from_wifi.direction = (strcmp(direction, "ccw") == 0) ? 0 : 1; // 0: backward, 1: forward
+            from_wifi.degrees = atof(degrees);
+            from_wifi.velocity = atof(velocity);
+            from_wifi.radius = atof(radius);
+            from_wifi.distance = 0; // No se usa en circular movement
+
             httpd_resp_sendstr(req, "Command received");
             return ESP_OK;
         } else {
@@ -182,6 +205,15 @@ esp_err_t selfRotation_movement_handler(httpd_req_t *req) {
             ESP_LOGI("Wifi lib", "Direction: %s", direction);
             ESP_LOGI("Wifi lib", "Degrees: %s", degrees);
             ESP_LOGI("Wifi lib", "Velocity: %s", velocity);
+
+            // Convertir los parámetros a float y asignarlos a from_wifi
+            from_wifi.type = SELF_ROTATION;
+            from_wifi.recived = true; // Indicar que se ha recibido un comando
+            from_wifi.direction = (strcmp(direction, "ccw") == 0) ? 0 : 1; // 0: ccw, 1: cw
+            from_wifi.degrees = atof(degrees);
+            from_wifi.velocity = atof(velocity);
+            from_wifi.distance = 0; // No distance for self-rotation
+            from_wifi.radius = 0; // No radius for self-rotation
 
             httpd_resp_sendstr(req, "Command received");
             return ESP_OK;
