@@ -88,11 +88,11 @@ void vTaskEncoder(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
 
-    // // Get current task handle
-    // TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
-    // // Get task name
-    // const char *task_name = pcTaskGetName(xTask);
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
 
     ///<-------------- Get angle through ADC -------------
     while (1) {
@@ -176,47 +176,17 @@ void vTaskControl( void * pvParameters ){
             ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
         }
 
-        // if (move && (counter % 3000 == 0)) { ///< Every 3 seconds
-        //     int idx = counter / 3000;
-        //     float setpoint = 0.0f, x_vel = 0.0f, y_vel = 0.0f; ///< Initialize setpoint and generalized velocities
-        //     if (idx < 8) {
-        //         // Calculate the setpoint based on the predefined movements
-        //         linear_movement(forward_mov[idx], linear_velocity[idx], angle[idx], &x_vel, &y_vel); ///< Calculate the setpoint based on the predefined movements
-        //         cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
-        //         if (pid_update_set_point(pid_block, setpoint / 1000.0) != PID_OK) {
-        //             ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-        //         } else {
-        //             ESP_LOGW(task_name, "Set point value changed to %.2f", setpoint / 1000.0);
-        //         }
-        //     } else {
-        //         // Stop moving after last setpoint
-        //         pid_update_set_point(pid_block, 0.0f);
-        //         move = false;
-        //         // ESP_LOGW(task_name, "Finished movement sequence, stopping.");
-        //     }
-        // }
-
-        // if (move) {
-        //     counter += SAMPLE_TIME;
-        // }
-
-        // linear_movement(1, 15, 45, &x_vel, &y_vel); ///< Calculate the setpoint based on the predefined movements
-        // cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
-
-        // if (pid_update_set_point(pid_block, setpoint / 1000) != PID_OK) {
-        //     ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-        // }
-
         // Update PID Controller
         pid_compute(pid_block, est_velocity, &output);
         bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
 
         // Log every 100ms because of the ESP_LOGI overhead
-        // static int ctr = 0;
-        // if (++ctr >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     ctr = 0;
-        // }
+        static int ctr = 0;
+        if (++ctr >= 150) {  // 2ms × 50 = 100ms
+            // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+            ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+            ctr = 0;
+        }
         
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
