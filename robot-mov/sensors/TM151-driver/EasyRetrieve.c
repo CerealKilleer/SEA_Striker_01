@@ -155,3 +155,45 @@ void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc) {
 
     // uart_clear(myUART); // Clear the UART buffer
 }
+
+void SerialPort_DataGet_RawYaw(uart_t* myUART){
+    char* txData;
+    int txSize;
+
+    if (EP_SUCC_ == EasyProfile_C_Interface_TX_Request(EP_ID_BROADCAST_, EP_CMD_RPY_, &txData, &txSize)) {
+        uart_write(myUART, (uint8_t*)txData, (size_t)txSize);
+    } 
+        // switch (header.cmd) { // The program will only reach this line if and only if a correct and complete package has received.
+        
+        // case EP_CMD_RPY_:{              // Here we demonstrate a few examples on how to use the received data
+        //     // Raw Data received
+        //     unsigned int timeStamp = ep_RPY.timeStamp;
+        //     rawYaw = ep_RPY.yaw;     // Note 1: ep_RPY is defined in the EasyProfile library as a global variable
+        // }break;
+        // }
+}
+
+void SerialPort_DataReceived_RawYaw(uart_t* myUART, float* rawYaw) {
+    // This function is called when new serial data is received
+    // You can process the received data here
+    // For example, you can call SerialPort_DataGet() to handle the data
+    SerialPort_DataGet_RawYaw(myUART);
+
+    char* rxData[120];
+    int   rxSize=120;
+    
+    uart_read(myUART, (uint8_t*)rxData, (size_t)rxSize, 1); // Read the data from UART
+
+    Ep_Header header; // Then let the EasyProfile do the rest such as data assembling and checksum verification.
+    if( EP_SUCC_ == EasyProfile_C_Interface_RX((char*)rxData, (int)rxSize, &header)){
+
+        // ESP_LOGI("EasyProfile", "RX header CMD: %d", header.cmd);
+        if (header.cmd == EP_CMD_RPY_) {
+            unsigned int timeStamp = ep_RPY.timeStamp;
+            // Copy the yaw data to the memory pointed to by rawYaw
+            *rawYaw = ep_RPY.yaw;
+        }
+    }
+
+    // uart_clear(myUART); // Clear the UART buffer
+}

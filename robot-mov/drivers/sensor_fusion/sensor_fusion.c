@@ -22,6 +22,7 @@ void sf_init(imu_data_t *imu_data, encoder_data_t *encoder_data, lidar_data_t *l
     encoder_data->angle_prev = 0.0f; ///< Initialize previous angle to 0
     encoder_data->radio = 3.0f; ///< Initialize radio to 3 cm
     encoder_data->distance = 0.0f; ///< Initialize distance to 0
+    encoder_data->distance_reached = 0; ///< Initialize distance reached flag to false
 
     // Initialize the Lidar data structure
     lidar_data->velocity = 0.0f; ///< Initialize velocity to 0

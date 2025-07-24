@@ -2,11 +2,11 @@
 
 void linear_movement(bool forward, float linear_velocity, float angle, float *x_velocity, float *y_velocity) {
     if (forward) {
-        *x_velocity = linear_velocity * sinf(angle * PI / 180.0f);
-        *y_velocity = linear_velocity * cosf(angle * PI / 180.0f);
-    } else {
         *x_velocity = -linear_velocity * sinf(angle * PI / 180.0f);
         *y_velocity = -linear_velocity * cosf(angle * PI / 180.0f);
+    } else {
+        *x_velocity = linear_velocity * sinf(angle * PI / 180.0f);
+        *y_velocity = linear_velocity * cosf(angle * PI / 180.0f);
     }
 }
 

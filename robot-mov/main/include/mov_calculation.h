@@ -15,7 +15,7 @@
  * @brief Calculate the linear movement of the robot.
  * @param forward True if the movement is forward, false if backward.
  * @param linear_velocity Linear velocity in cm/s.
- * @param angle Angle in degrees for the movement.
+ * @param angle Angle in degrees for the movement (0 for forward).
  * @param x_velocity Pointer to store the x component of the velocity.
  * @param y_velocity Pointer to store the y component of the velocity.
  */

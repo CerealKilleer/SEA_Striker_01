@@ -3,5 +3,5 @@
 **/.vscode/
 **/build/
 **/html/
-
-
+.devcontainer
+**/.devcontainer/

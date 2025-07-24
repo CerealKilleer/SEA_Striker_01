@@ -66,22 +66,33 @@
 ///<--------------------------------------------------
 
 ///<-------------- PID configuration -----------------
-#define PID_KP .01f
-#define PID_KI .01f
-#define PID_KD .001f
+#define PID_KP .04//.01f
+#define PID_KI .02//.01f
+#define PID_KD 0.0//.001f
 #define EULER 2.71828
 #define PI 3.14159
 ///<--------------------------------------------------
 
 typedef struct {
-    AS5600_t * gStruct; ///< Velocity estimation from encoder in cm/s
-    encoder_data_t * sensor_data;     ///< Velocity estimation from IMU in cm/s
-    pid_block_handle_t * pid_block;   ///< Velocity estimation from Lidar in cm/s
-    bldc_pwm_motor_t * pwm_motor; ///< BLDC motor object
+    AS5600_t * gStruct;             ///< Velocity estimation from encoder in cm/s
+    encoder_data_t * sensor_data;   ///< Velocity estimation from IMU in cm/s
+    pid_block_handle_t * pid_block; ///< Velocity estimation from Lidar in cm/s
+    bldc_pwm_motor_t * pwm_motor;   ///< BLDC motor object
 
-    uint8_t predef_move; ///< Predefined movements for the robot
-    uint8_t vel_selection; ///< Velocity selection for the robot
+    uart_t * myUART;                  ///< UART object for TM151 IMU
+    imu_data_t * imu_data;            ///< IMU data
+
+    uint8_t predef_move;            ///< Predefined movements for the robot
+    uint8_t vel_selection;          ///< Velocity selection for the robot
 } control_params_t;
+
+typedef struct {
+    float target_distance; ///< Distance measurement
+    encoder_data_t * encoder_data_right; ///< Encoder data structure for right wheel
+    encoder_data_t * encoder_data_left;  ///< Encoder data structure for left wheel
+    encoder_data_t * encoder_data_back;  ///< Encoder data structure for back wheel
+
+} distance_params_t;
 
 /**
  * @brief Task to read from encoder
@@ -104,6 +115,13 @@ void vTaskLidar(void * pvParameters);
  * @param pvParameters 
  */
 void vTaskControl( void * pvParameters );
+
+/**
+ * @brief Task to keep track of distace
+ * 
+ * @param pvParameters
+ */
+void vTaskDistance(void * pvParameters);
 
 /**
  * @brief UART task to read data from console
