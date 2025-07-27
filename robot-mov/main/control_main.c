@@ -185,12 +185,11 @@ void vTaskControl( void * pvParameters ){
         // Low-pass filter
         est_velocity = encoder_data->velocity;
 
-        // est_velocity = beta * last_est_velocity + (1 - beta) * est_velocity; ///< Apply low-pass filter to the estimated velocity when there is more than one sensor
         last_est_velocity = est_velocity; ///< Update the last estimated velocity
 
         // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
         if (!(encoder_data->distance_reached)){
-            linear_movement(1, 15, 0, &x_vel, &y_vel); ///< Calculate the linear movement
+            linear_movement(1, 7, 0, &x_vel, &y_vel); ///< Calculate the linear movement
             cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
         } else {
             setpoint = 0.0f; ///< Stop the movement
@@ -205,49 +204,38 @@ void vTaskControl( void * pvParameters ){
         bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
 
         // Log every 100ms because of the ESP_LOGI overhead
-        // static int ctr = 0;
-        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
-        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-        //     ctr = 0;
-        // }
+        static int ctr = 0;
+        if (++ctr >= 150) {  // 2ms × 50 = 100ms
+            // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+            ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+            ctr = 0;
+        }
         
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
 }
 
 void vTaskDistance(void *pvParameters){
+    float goal_time = 30.0/7.0; ///< Goal time for 20 cm at 15 cm/s
     distance_params_t *params = (distance_params_t *)pvParameters; ///< Distance parameters structure
     encoder_data_t *encoder_data_right = params->encoder_data_right; ///< Encoder data structure for right wheel
-    encoder_data_t *encoder_data_left = params->encoder_data_left; ///< Encoder data structure
+    encoder_data_t *encoder_data_left = params->encoder_data_left; ///< Encoder data structure for left wheel
     encoder_data_t *encoder_data_back = params->encoder_data_back; ///< Encoder data structure for back wheel
     float dx, dy, distance = 0, beta = 0.9; ///< Variables to store the distance
 
     while(1){
-        // Calculate the distance based on the encoder data
-        dx = (-sqrtf(3)/3.0) * fabsf(encoder_data_right->distance) + (sqrtf(3)/3.0) * fabsf(encoder_data_left->distance); ///< Use absolute values for distance
-        dy = (-2.0/3.0) * fabsf(encoder_data_back->distance) + (1.0/3.0) * fabsf(encoder_data_right->distance) + (1.0/3.0) * fabsf(encoder_data_left->distance); ///< Use absolute values for distance
-        // distance = beta * distance + (1-beta) * sqrtf(dx * dx + dy * dy); ///< Calculate the distance based on the encoder data
-        distance = sqrtf(dx * dx + dy * dy); ///< Calculate the distance based on the encoder data
+        static uint16_t time_count = 0; ///< Counter to keep track of the number of iterations
 
-        if(distance >= params->target_distance) {
+        if(time_count >= goal_time * 1000) {
             encoder_data_right->distance_reached = 1; ///< Set the distance reached flag to true
             encoder_data_left->distance_reached = 1; ///< Set the distance reached flag to true
             encoder_data_back->distance_reached = 1; ///< Set the distance reached flag to true
-            // ESP_LOGI("DISTANCE_TASK", "Target distance reached: %.2f cm", distance); ///< Log the target distance reached
+            
             encoder_data_right->distance = 0.0f; ///< Reset the distance for right wheel
             encoder_data_left->distance = 0.0f; ///< Reset the distance for left
             encoder_data_back->distance = 0.0f; ///< Reset the distance for back wheel
-            distance = 0.0f; ///< Reset the distance
-        }
-
-        // Log every 100ms because of the ESP_LOGI overhead
-        static int counter = 0;
-        if (++counter >= 10) {  // 2ms × 5 × 10 = 100ms
-            ESP_LOGI("DISTANCE_TASK", "Target Distance: %.2f cm\tCurrent distance: %.2f cm", params->target_distance, distance);
-            ESP_LOGW("DISTANCE_TASK", "Right wheel distance: %.2f cm\tLeft wheel distance: %.2f cm\tBack wheel distance: %.2f cm", 
-                encoder_data_right->distance, encoder_data_left->distance, encoder_data_back->distance);
-            counter = 0;
+        } else {
+            time_count += 5 * SAMPLE_TIME; ///< Increment the time count
         }
 
         vTaskDelay(5 * SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms

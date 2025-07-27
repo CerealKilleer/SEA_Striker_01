@@ -9,7 +9,7 @@
 #define PI 3.14159265358979323846
 #define DELTA PI/6.0  ///< Angle in degrees for the transformation (orientation angle of the body)
 #define N     16      ///< Reduction factor for the transformation (planetary gear ratio)
-#define R     0.0325f ///< Radio of the wheel in cm
+#define R     3.25f   ///< Radius of the wheel in cm
 
 /**
  * @brief Calculate the linear movement of the robot.
