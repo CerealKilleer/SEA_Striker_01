@@ -34,3 +34,17 @@ esp_err_t dev_wifi_init(void)
     }
     return ESP_OK;
 }
+
+void get_ip_address(void)
+{
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == NULL)
+    {
+        ESP_LOGE("WIFI_LIB", "Failed to get netif handle");
+        return;
+    }
+
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(netif, &ip_info);
+    ESP_LOGI("WIFI_LIB", "IP Address: " IPSTR, IP2STR(&ip_info.ip));
+}

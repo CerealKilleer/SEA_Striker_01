@@ -3,7 +3,7 @@ import socket
 
 app = Flask(__name__)
 
-ESP32_IP = "172.20.10.3"        # CAMBIAR POR LA DIRECCIÓN IP QUE SE ASIGNE AL ESP
+ESP32_IP = "10.254.27.75"        # CAMBIAR POR LA DIRECCIÓN IP QUE SE ASIGNE AL ESP
 ESP32_PORT = 3333
 
 @app.route('/send', methods=['GET'])

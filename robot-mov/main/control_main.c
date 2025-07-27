@@ -82,6 +82,10 @@ pid_parameter_t pid_paramB = {
     .beta = 0.0f
 };
 
+enum movements_num movement; ///< Movement type
+float x_vel = .0f, y_vel = .0f; ///< Generalized velocities for the robot
+float goal_time = .0f; ///< Goal time for linear movement in seconds
+
 // Task to read from encoder
 void vTaskEncoder(void * pvParameters) {
 
@@ -170,8 +174,7 @@ void vTaskControl( void * pvParameters ){
     float est_velocity = 0.0f, last_est_velocity = 0.0f;
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
-    float setpoint = 0.0f * 1000;
-    float x_vel = 0.0f, y_vel = 0.0f; ///< Initialize setpoint and generalized velocities
+    float setpoint = 0.0f;
 
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
@@ -187,12 +190,24 @@ void vTaskControl( void * pvParameters ){
 
         last_est_velocity = est_velocity; ///< Update the last estimated velocity
 
-        // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
-        if (!(encoder_data->distance_reached)){
-            linear_movement(1, 7, 0, &x_vel, &y_vel); ///< Calculate the linear movement
+        switch (movement) ///< Check the movement type
+        {
+        case LINEAR:
             cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
-        } else {
-            setpoint = 0.0f; ///< Stop the movement
+            break;
+        case CIRCULAR:
+            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case ROTATION:
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case DO_NOT_MOVE:
+            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
+            break;
+        
+        default:
+            break;
         }
 
         if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
@@ -216,7 +231,7 @@ void vTaskControl( void * pvParameters ){
 }
 
 void vTaskDistance(void *pvParameters){
-    float goal_time = 30.0/7.0; ///< Goal time for 20 cm at 15 cm/s
+    
     distance_params_t *params = (distance_params_t *)pvParameters; ///< Distance parameters structure
     encoder_data_t *encoder_data_right = params->encoder_data_right; ///< Encoder data structure for right wheel
     encoder_data_t *encoder_data_left = params->encoder_data_left; ///< Encoder data structure for left wheel
@@ -226,14 +241,9 @@ void vTaskDistance(void *pvParameters){
     while(1){
         static uint16_t time_count = 0; ///< Counter to keep track of the number of iterations
 
-        if(time_count >= goal_time * 1000) {
-            encoder_data_right->distance_reached = 1; ///< Set the distance reached flag to true
-            encoder_data_left->distance_reached = 1; ///< Set the distance reached flag to true
-            encoder_data_back->distance_reached = 1; ///< Set the distance reached flag to true
-            
-            encoder_data_right->distance = 0.0f; ///< Reset the distance for right wheel
-            encoder_data_left->distance = 0.0f; ///< Reset the distance for left
-            encoder_data_back->distance = 0.0f; ///< Reset the distance for back wheel
+        if(time_count >= goal_time * 1000 && movement == LINEAR) { ///< Check if the goal time has been reached
+            movement = DO_NOT_MOVE; ///< Set the movement to do not move
+            time_count = 0; ///< Reset the time count
         } else {
             time_count += 5 * SAMPLE_TIME; ///< Increment the time count
         }
@@ -293,7 +303,24 @@ void vTaskUDPServer(void *pvParameters)
             char direction[16];
             float degrees, velocity, distance;
             sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &distance);
+            uint8_t forward = 0;
+            if (strcmp(direction, "Forward") == 0)
+            {
+                forward = 1; ///< Set forward movement
+            }
+            else if (strcmp(direction, "Backward") == 0)
+            {
+                forward = 0; ///< Set backward movement
+            }
+            else
+            {
+                ESP_LOGE("WIFI", "Invalid direction: %s", direction);
+                continue;
+            }
             // lógica de movimiento lineal
+            movement = LINEAR; ///< Set the movement type to linear
+            goal_time = distance / velocity; ///< Calculate the goal time in seconds
+            linear_movement(forward, distance, degrees, &x_vel, &y_vel); ///< Calculate the linear movement
         }
         else if (strncmp(rx_buffer, "C ", 2) == 0)
         {

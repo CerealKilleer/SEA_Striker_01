@@ -94,6 +94,13 @@ typedef struct {
 
 } distance_params_t;
 
+enum movements_num {
+    LINEAR = 0,   ///< Linear movement
+    CIRCULAR = 1, ///< Circular movement
+    ROTATION = 2, ///< Rotation movement
+    DO_NOT_MOVE = 3 ///< Do not move
+};
+
 /**
  * @brief Task to read from encoder
  */

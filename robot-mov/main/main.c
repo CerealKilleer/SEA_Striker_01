@@ -263,8 +263,9 @@ void app_main(void)
     // }
 
     /// <------------------ WiFi ------------------------
-    xTaskCreatePinnedToCore(vTaskUDPServer, "UDPServer", 2048, NULL, 8, NULL, 0); ///< Create the task for UDP server
+    xTaskCreatePinnedToCore(vTaskUDPServer, "UDPServer", 2048, NULL, 8, NULL, 1); ///< Create the task for UDP server
     ESP_LOGI("TASKS", "UDP Server task created successfully");
+    get_ip_address(); ///< Get the IP address of the device
     ///<-------------------------------------------------
     
     

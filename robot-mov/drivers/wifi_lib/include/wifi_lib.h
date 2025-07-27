@@ -24,8 +24,8 @@
 #ifndef _WIFI_LIB_H_
 #define _WIFI_LIB_H_
 
-#define WIFI_SSID "Howlers - UdeA"
-#define WIFI_PASS "9876543210"
+#define WIFI_SSID "Nelson's S24"//"Howlers - UdeA"
+#define WIFI_PASS "1234567890" //"9876543210"
 #define WIFI_MAXIMUM_RETRY 5
 #define PORT 3333
 
@@ -48,6 +48,13 @@
 
 esp_err_t dev_wifi_init(void);
 
-
+/**
+ * @brief Get the IP address of the WiFi interface
+ * 
+ * This function retrieves the IP address assigned to the WiFi interface and logs it.
+ * 
+ * It uses the ESP-IDF API to get the IP information from the network interface and logs it using ESP_LOGI.
+ */
+void get_ip_address(void);
 
 #endif // _WIFI_LIB_H_
