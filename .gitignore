@@ -5,3 +5,10 @@
 **/html/
 .devcontainer
 **/.devcontainer/
+./.devcontainer
+env
+venv
+**/env/
+**/venv/
+./env
+./venv

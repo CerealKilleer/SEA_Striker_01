@@ -204,12 +204,12 @@ void vTaskControl( void * pvParameters ){
         bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
 
         // Log every 100ms because of the ESP_LOGI overhead
-        static int ctr = 0;
-        if (++ctr >= 150) {  // 2ms × 50 = 100ms
-            // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-            ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-            ctr = 0;
-        }
+        // static int ctr = 0;
+        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
+        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+        //     ctr = 0;
+        // }
         
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
@@ -240,5 +240,77 @@ void vTaskDistance(void *pvParameters){
 
         vTaskDelay(5 * SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
+
+}
+
+void vTaskUDPServer(void *pvParameters)
+{
+
+    // ESP_LOGI("WIFI", "UDP server listening on port %d", PORT);
+
+    char rx_buffer[128];
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(PORT),
+        .sin_addr.s_addr = htonl(INADDR_ANY)};
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0)
+    {
+        ESP_LOGE("WIFI", "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        ESP_LOGE("WIFI", "Socket unable to bind: errno %d", errno);
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    
+
+    while (1)
+    {
+        struct sockaddr_in source_addr;
+        socklen_t socklen = sizeof(source_addr);
+        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0,
+                           (struct sockaddr *)&source_addr, &socklen);
+
+        if (len < 0)
+        {
+            ESP_LOGE("WIFI", "recvfrom failed: errno %d", errno);
+            continue;
+        }
+
+        rx_buffer[len] = 0;
+        ESP_LOGI("WIFI", "Received: %s", rx_buffer);
+
+        if (strncmp(rx_buffer, "L ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity, distance;
+            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &distance);
+            // lógica de movimiento lineal
+        }
+        else if (strncmp(rx_buffer, "C ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity, radius;
+            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &radius);
+            // lógica de movimiento circular
+        }
+        else if (strncmp(rx_buffer, "R ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity;
+            sscanf(rx_buffer + 2, "%s %f %f", direction, &degrees, &velocity);
+            // lógica de rotación sobre sí mismo
+        }
+    }
+
+    close(sock);
 
 }

@@ -138,6 +138,14 @@ void app_main(void)
     pid_new_control_block(&pid_config, &pidB);
     ///<---------------------------------------------------
 
+    ///<---------------- Initialize the Wifi ----------------
+    if (dev_wifi_init() != ESP_OK) {
+        ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
+        return;
+    }
+    ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
+    ///<----------------------------------------------------
+
     static control_params_t right_control_params = {
         .gStruct = &gAs5600R,
         .sensor_data = &right_encoder_data,
@@ -254,12 +262,9 @@ void app_main(void)
     //     return;
     // }
 
-    ///<---------------- Initialize the Wifi ----------------
-
-
-    ///<----------------------------------------------------
-
-    
+    /// <------------------ WiFi ------------------------
+    xTaskCreatePinnedToCore(vTaskUDPServer, "UDPServer", 2048, NULL, 8, NULL, 0); ///< Create the task for UDP server
+    ESP_LOGI("TASKS", "UDP Server task created successfully");
     ///<-------------------------------------------------
     
     

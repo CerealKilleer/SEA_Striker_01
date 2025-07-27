@@ -1,0 +1,115 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>ROBOT CONTROL</title>
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    form, input, select, button {
+      margin: 10px;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    button {
+      background: #00f;
+      color: white;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>UDP ROBOT CONTROL</h1>
+
+  <h2>ESP32 Proxy IP</h2>
+  <input id="esp32_ip" type="text" placeholder="Proxy IP" value="http://localhost:5000">
+
+  <!-- Line Movement -->
+  <form id="lineMovement">
+    <h3>Line Movement</h3>
+    <select id="direction">
+      <option value="Forward">Forward</option>
+      <option value="Backward">Backward</option>
+    </select>
+    <input required id="degrees" type="number" placeholder="Degrees (°)">
+    <input required id="velocity" type="number" placeholder="Velocity (cm/s)">
+    <input required id="distance" type="number" placeholder="Distance (cm)">
+    <button type="submit">Send</button>
+  </form>
+
+  <!-- Circular Movement -->
+  <form id="circularMovement">
+    <h3>Circular Movement</h3>
+    <select id="orientation_c">
+      <option value="cw">Clock Wise</option>
+      <option value="ccw">Counter Clock Wise</option>
+    </select>
+    <input required id="degrees_c" type="number" placeholder="Degrees (°)">
+    <input required id="velocity_c" type="number" placeholder="Velocity (cm/s)">
+    <input required id="radius_c" type="number" placeholder="Radius (cm)">
+    <button type="submit">Send</button>
+  </form>
+
+  <!-- Self Rotation -->
+  <form id="selfRotation">
+    <h3>Self Rotation</h3>
+    <select id="orientation_r">
+      <option value="cw">Clock Wise</option>
+      <option value="ccw">Counter Clock Wise</option>
+    </select>
+    <input required id="degrees_r" type="number" placeholder="Degrees to rotate (°)">
+    <input required id="velocity_r" type="number" placeholder="Velocity of rotation (°/s)">
+    <button type="submit">Send</button>
+  </form>
+
+  <script>
+    const ESP32_IP = document.getElementById("esp32_ip");
+
+    function sendCommand(mode, args) {
+      const url = new URL(`${ESP32_IP.value}/send`);
+      url.searchParams.set("mode", mode);
+      args.forEach(arg => url.searchParams.append("arg", arg));
+
+      fetch(url)
+        .then(r => r.text())
+        .then(alert)
+        .catch(err => alert("Error: " + err));
+    }
+
+    document.getElementById("lineMovement").onsubmit = function (e) {
+      e.preventDefault();
+      sendCommand("L", [
+        document.getElementById("direction").value,
+        document.getElementById("degrees").value,
+        document.getElementById("velocity").value,
+        document.getElementById("distance").value
+      ]);
+    };
+
+    document.getElementById("circularMovement").onsubmit = function (e) {
+      e.preventDefault();
+      sendCommand("C", [
+        document.getElementById("orientation_c").value,
+        document.getElementById("degrees_c").value,
+        document.getElementById("velocity_c").value,
+        document.getElementById("radius_c").value
+      ]);
+    };
+
+    document.getElementById("selfRotation").onsubmit = function (e) {
+      e.preventDefault();
+      sendCommand("R", [
+        document.getElementById("orientation_r").value,
+        document.getElementById("degrees_r").value,
+        document.getElementById("velocity_r").value
+      ]);
+    };
+  </script>
+</body>
+</html>

@@ -124,10 +124,8 @@ void vTaskControl( void * pvParameters );
 void vTaskDistance(void * pvParameters);
 
 /**
- * @brief UART task to read data from console
- * 
- * @param pvParameters 
+ * @brief udp server task to handle incoming requests
  */
-void vTaskUART(void * pvParameters);
+void vTaskUDPServer(void * pvParameters);
 
 #endif // CONTROL_H
