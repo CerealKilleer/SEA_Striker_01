@@ -19,7 +19,7 @@
 #define PWM_REV_GPIO_B 41           ///< GPIO number for back PWM reverse signal
 
 #define PWM_FREQ 50                 ///< PWM frequency in Hz
-#define PWM_RESOLUTION 100000       ///< PWM resolution in bits
+#define PWM_RESOLUTION 100000       ///< PWM resolution in ticks
 #define MAX_PWM_CAL 120             ///< Maximum PWM value
 #define MIN_PWM_CAL 35              ///< Minimum PWM value
 #define MAX_PWM_RE 119              ///< Maximum PWM value (moves fully)

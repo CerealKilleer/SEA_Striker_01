@@ -28,7 +28,7 @@ typedef struct {
     uint8_t pwm_gpio_num;   ///< GPIO number
     uint32_t pwm_freq_hz;   ///< PWM frequency in Hz
     uint32_t pwm_duty_us;   ///< PWM duty cycle in microseconds
-    uint32_t max_cmp;  ///< Maximum speed in Hz
+    uint32_t max_cmp;       ///< Maximum speed in Hz
 
     uint16_t duty_cycle;    ///< Duty cycle in percentage
     int group_id;           ///< MCPWM group number 
@@ -51,12 +51,13 @@ typedef struct {
  * @brief Initialize the BLDC motor
  * 
  * @param motor instance of the motor
- * @param pwm_gpio_num 
- * @param pwm_freq_hz 
- * @param group_id 
- * @param resolution_hz 
- * @param high_duty
- * @param low_duty
+ * @param pwm_gpio_num pwm gpio num
+ * @param rev_gpio_num pwm reverse signal
+ * @param pwm_freq_hz pwm frequency
+ * @param group_id MCPWM group ID 0/1
+ * @param resolution_hz frequency timer resolution
+ * @param high_duty Maximum duty
+ * @param low_duty Minimum duty
  */
 esp_err_t bldc_init(bldc_pwm_motor_t *motor, uint8_t pwm_gpio_num, uint8_t rev_gpio_num,uint32_t pwm_freq_hz, uint32_t group_id, uint32_t resolution_hz, uint8_t low_duty, uint8_t high_duty);
 

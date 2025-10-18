@@ -12,7 +12,8 @@
 
 static const char *BLDC_TAG = "bdc_motor_mcpwm";
 
-esp_err_t bldc_init(bldc_pwm_motor_t *motor, uint8_t pwm_gpio_num, uint8_t rev_gpio_num, uint32_t pwm_freq_hz, uint32_t group_id, uint32_t resolution_hz, uint8_t low_duty, uint8_t high_duty)
+esp_err_t bldc_init(bldc_pwm_motor_t *motor, uint8_t pwm_gpio_num, uint8_t rev_gpio_num, uint32_t pwm_freq_hz, 
+                    uint32_t group_id, uint32_t resolution_hz, uint8_t low_duty, uint8_t high_duty)
 
 {
     motor->rev_gpio_num = rev_gpio_num;

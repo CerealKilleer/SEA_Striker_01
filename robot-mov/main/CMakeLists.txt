@@ -8,12 +8,23 @@ file(GLOB SRCS_PID_LIB  "../drivers/pid_lib/*.c")
 file(GLOB SRCS_SENSOR_FUSION "../drivers/sensor_fusion/*.c")
 
 
+if(ENCODER_CALIBRATION)
+        idf_component_register(
+                SRCS "encoder_calibration.c" ${SRCS_AS5600} ${SRCS_PLATFORM}
+                INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../platform/include"
+        )
+elseif (ESCS_CALIBRATION)
+        idf_component_register(
+                SRCS "escs_calibration.c" ${SRCS_BLDC_PWM} ${SRCS_PLATFORM}
+                INCLUDE_DIRS "." "../drivers/bldc_pwm/include" "../platform/include"
+        )
+else()
+        idf_component_register(
+                SRCS "main.c" "control_main.c" ${SRCS_AS5600} ${SRCS_TM151} ${SRCS_VL53L1X} ${SRCS_PLATFORM} ${SRCS_BLDC_PWM} ${SRCS_PID_LIB} ${SRCS_SENSOR_FUSION}
+                INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../sensors/TM151-driver/include" "../sensors/VL53L1X-driver/include"
+                        "../platform/include" "../drivers/bldc_pwm/include" "../drivers/pid_lib/include" "../drivers/sensor_fusion/include"
+                        "./include"
+                PRIV_REQUIRES driver esp_wifi nvs_flash esp_adc esp_timer
+        )
+endif()
 
-idf_component_register(
-        SRCS "main.c" "control_main.c" ${SRCS_AS5600} ${SRCS_TM151} ${SRCS_VL53L1X} ${SRCS_PLATFORM} ${SRCS_BLDC_PWM} ${SRCS_PID_LIB} ${SRCS_SENSOR_FUSION}
-
-        INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../sensors/TM151-driver/include" "../sensors/VL53L1X-driver/include"
-                    "../platform/include" "../drivers/bldc_pwm/include" "../drivers/pid_lib/include" "../drivers/sensor_fusion/include"
-                    "./include"
-        PRIV_REQUIRES driver esp_wifi nvs_flash esp_adc esp_timer
-)

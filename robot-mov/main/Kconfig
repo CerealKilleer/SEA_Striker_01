@@ -1,0 +1,15 @@
+menu "Project options"
+
+config ENCODER_CALIBRATION
+    bool "Activate the compile for encoder calibration"
+    default n
+    help
+        If y activate the encoder calibration project
+
+config ESCS_CALIBRATION
+    bool "Activate the compile for BLC motors calibration"
+    default n
+    help
+        If y activate the BLC motors calibration
+
+endmenu
