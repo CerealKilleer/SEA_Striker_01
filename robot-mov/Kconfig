@@ -11,5 +11,4 @@ config ESCS_CALIBRATION
     default n
     help
         If y activate the BLC motors calibration
-
 endmenu

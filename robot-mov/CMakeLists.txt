@@ -5,4 +5,15 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(robot-mov)
+
+set(ENCODER_CALIBRATION n)
+set(ESCS_CALIBRATION n)
+
+if(ENCODER_CALIBRATION)
+        project(encoder_calibration)
+elseif (ESCS_CALIBRATION)
+        project(escs_calibration)
+else()
+        project(robot-mov)
+endif()
+
