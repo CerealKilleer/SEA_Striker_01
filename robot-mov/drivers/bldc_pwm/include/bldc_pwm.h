@@ -23,6 +23,9 @@
 #include "driver/mcpwm_prelude.h"
 #include "driver/gpio.h"
 
+/**
+ * @brief Structure with members useful to configure and manage the BLDC controllers using MCPWM
+ */
 typedef struct {
     uint8_t rev_gpio_num;   ///< GPIO number
     uint8_t pwm_gpio_num;   ///< GPIO number

@@ -71,11 +71,14 @@
 #define PI 3.14159
 ///<--------------------------------------------------
 
+/***
+ * @brief This defines the data necessary to generate PID control for every wheel
+ */
 typedef struct {
-    AS5600_t * gStruct; ///< Velocity estimation from encoder in cm/s
-    encoder_data_t * sensor_data;     ///< Velocity estimation from IMU in cm/s
-    pid_block_handle_t * pid_block;   ///< Velocity estimation from Lidar in cm/s
-    bldc_pwm_motor_t * pwm_motor; ///< BLDC motor object
+    AS5600_t * gStruct;                 /*< Encoder raw data and handlers*/
+    encoder_data_t * sensor_data;       /*< Variables estimated*/
+    pid_block_handle_t * pid_block;     /*/< PID_block variables*/
+    bldc_pwm_motor_t * pwm_motor;       /*/< BLDC motor struct*/
 } control_params_t;
 
 /**

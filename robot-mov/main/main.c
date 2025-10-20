@@ -38,8 +38,98 @@
 */
 
 #include "control_main.h"
+#define MCPWM_GROUP_ID(group_id) (0)
 
 uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
+
+/**
+ * @brief Initializes the PID controllers and links all control structures.
+ *
+ * This function creates and initializes a new PID control block using the specified
+ * parameters, and associates all required references for feedback control,
+ * including sensor data, motor control structures, and PID configuration.
+ *
+ * @param[in,out] control_params   Pointer to the main control parameters structure.
+ * @param[in]     pid_param        Pointer to the structure containing initial PID parameters.
+ * @param[in]     gAs5600          Pointer to the AS5600 sensor handle.
+ * @param[in]     sensor_data      Pointer to the structure containing encoder or sensor data.
+ * @param[in,out] pid_block        Pointer to the PID control block to be initialized.
+ * @param[in,out] pwm_motor_data   Pointer to the BLDC motor control structure.
+ *
+ * @note This function must be called before executing any PID control loop.
+ * 
+ * @retval None
+ */
+static inline void init_pid_controllers(control_params_t *control_params, pid_parameter_t *pid_param, AS5600_t *gAs5600, 
+                                        encoder_data_t *sensor_data, pid_block_handle_t *pid_block,
+                                        bldc_pwm_motor_t *pwm_motor_data)
+{
+    pid_config_t pid_config = {
+        .init_param = *pid_param
+    };
+
+    pid_new_control_block(&pid_config, pid_block);
+
+    control_params->gStruct = gAs5600;
+    control_params->sensor_data = sensor_data;
+    control_params->pid_block = pid_block;
+    control_params->pwm_motor = pwm_motor_data;
+}
+
+/**
+ * @brief Initializes a single AS5600 magnetic encoder sensor.
+ *
+ * This function configures an AS5600 encoder instance by assigning its
+ * configuration, output GPIO pin, and ADC handle. It also attempts to configure
+ * the ADC channel used for reading the analog output of the encoder.
+ *
+ * @param[out] gAs5600 Pointer to the AS5600 encoder instance to initialize.
+ * @param[in] conf Pointer to the configuration structure for the AS5600 sensor.
+ * @param[in] handle Pointer to the ADC oneshot handle used for analog readings.
+ * @param[in] output_gpio GPIO pin connected to the AS5600 OUT pin.
+ * @param[in] adc_unit ADC unit number to be used (e.g., ADC_UNIT_1 or ADC_UNIT_2).
+ * @param[in] encoder_name Human-readable name of the encoder (for logging purposes).
+ *
+ * @note The function logs an error message if the ADC channel configuration fails.
+ *
+ */
+
+static inline void init_encoder(AS5600_t *gAs5600, AS5600_config_t *conf, adc_oneshot_unit_handle_t *handle,
+                                uint8_t output_gpio, uint8_t adc_unit, const char *encoder_name)
+{
+    gAs5600->conf = *conf;                            ///< Set the configuration for one AS5600 sensor
+    gAs5600->out = output_gpio;                       ///< Set the OUT GPIO pin for one AS5600 sensor
+    gAs5600->adc_handle.adc_handle =  *handle;        ///< Set the ADC handle for one AS5600 sensor
+
+    if (!adc_config_channel(&gAs5600->adc_handle, output_gpio, adc_unit)) {
+        ESP_LOGE("AS5600_ADC_CH", "AS5600 %s sensor ADC initialization failed\n", encoder_name);
+    }
+}
+/**
+ * @brief Initializes and enables a BLDC motor.
+ *
+ * This function performs a complete initialization sequence for a BLDC motor.
+ * It calls the underlying initialization function, enables the motor, and sets
+ * the initial PWM duty cycle to 0%.
+ *
+ * @param[in,out] pwm_motor Pointer to the BLDC motor structure to initialize.
+ * @param[in] gpio GPIO pin used for the main PWM output.
+ * @param[in] gpio_rev GPIO pin used for the inverted PWM output.
+ * @param[in] freq PWM frequency in hertz.
+ * @param[in] gpio_group Identifier for the GPIO group or channel.
+ * @param[in] pwm_resolution PWM resolution in bits.
+ * @param[in] min_pwm_cal Minimum PWM value used during calibration.
+ * @param[in] max_pwm_cal Maximum PWM value used during calibration.
+ */
+static inline void init_blc_motor(bldc_pwm_motor_t *pwm_motor, uint8_t gpio, 
+                                  uint8_t gpio_rev, uint16_t freq, uint8_t gpio_group,
+                                  uint32_t pwm_resolution, uint8_t min_pwm_cal, uint8_t max_pwm_cal)
+{
+    bldc_init(pwm_motor, gpio, gpio_rev, freq, gpio_group, pwm_resolution, min_pwm_cal, max_pwm_cal); ///< Initialize the BLDC motor
+    bldc_enable(pwm_motor); ///< Enable the BLDC motor
+    bldc_set_duty(pwm_motor, 0); ///< Set the duty cycle to 0%
+}
+
 
 void app_main(void)
 {
@@ -56,8 +146,6 @@ void app_main(void)
 
     extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
 
-    
-
     ///<---------------- Initialize the Wifi ----------------
     if (wifi_init_station() != ESP_OK){
         ESP_LOGE("WIFI_INIT", "Could not initialize WiFi station mode...");
@@ -68,8 +156,7 @@ void app_main(void)
 
     }
     ///<----------------------------------------------------
-    
-    
+        
     ///<-------------- Initialize the VL53L1X sensor -----
     // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
     //     ESP_LOGE(TAG_VL53L1X, "Could not initialize VL53L1X sensor...");
@@ -81,19 +168,15 @@ void app_main(void)
     // vTaskDelay(500 / portTICK_PERIOD_MS); ///< Wait for 500 ms
     ///<--------------------------------------------------
 
-
     ///<------- Initialize the BLDC motors PWMs ----------
-    bldc_init(&pwmR, PWM_GPIO_R, PWM_REV_GPIO_R, PWM_FREQ, 0, PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL); ///< Initialize the BLDC motor
-    bldc_enable(&pwmR); ///< Enable the BLDC motor
-    bldc_set_duty(&pwmR, 0); ///< Set the duty cycle to 0%
-
-    bldc_init(&pwmL, PWM_GPIO_L, PWM_REV_GPIO_L, PWM_FREQ, 0, PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL); ///< Initialize the BLDC motor
-    bldc_enable(&pwmL); ///< Enable the BLDC motor
-    bldc_set_duty(&pwmL, 0); ///< Set the duty cycle to 0%
-
-    bldc_init(&pwmB, PWM_GPIO_B, PWM_REV_GPIO_B, PWM_FREQ, 1, PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL); ///< Initialize the BLDC motor
-    bldc_enable(&pwmB); ///< Enable the BLDC motor
-    bldc_set_duty(&pwmB, 0); ///< Set the duty cycle to 0%
+    init_blc_motor(&pwmR, PWM_GPIO_R, PWM_REV_GPIO_R, PWM_FREQ, MCPWM_GROUP_ID(0), 
+                    PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL);
+    
+    init_blc_motor(&pwmL, PWM_GPIO_L, PWM_REV_GPIO_L, PWM_FREQ, MCPWM_GROUP_ID(0), 
+                    PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL);
+    
+    init_blc_motor(&pwmB, PWM_GPIO_B, PWM_REV_GPIO_B, PWM_FREQ, MCPWM_GROUP_ID(1), 
+                    PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL);
     ///<--------------------------------------------------
 
     ///<---------- Initialize the AS5600 sensors ---------
@@ -113,26 +196,10 @@ void app_main(void)
         return;
     }
 
-    gAs5600R.conf = conf; ///< Set the configuration for the right AS5600 sensor
-    gAs5600R.out = AS5600_OUT_GPIO_RIGHT; ///< Set the OUT GPIO pin for the right AS5600 sensor
-    gAs5600R.adc_handle.adc_handle = handle; ///< Set the ADC handle for the right AS5600 sensor
-    if (!adc_config_channel(&gAs5600R.adc_handle, AS5600_OUT_GPIO_RIGHT, AS5600_ADC_UNIT_ID)) {
-        ESP_LOGE("AS5600_ADC_CH", "AS5600 right sensor ADC initialization failed\n");
-    }
-    
-    gAs5600L.conf = conf; ///< Set the configuration for the left AS5600 sensor
-    gAs5600L.out = AS5600_OUT_GPIO_LEFT; ///< Set the OUT
-    gAs5600L.adc_handle.adc_handle = handle; ///< Set the ADC handle for the left AS5600 sensor
-    if (!adc_config_channel(&gAs5600L.adc_handle, AS5600_OUT_GPIO_LEFT, AS5600_ADC_UNIT_ID)) {
-        ESP_LOGE("AS5600_ADC_CH", "AS5600 left sensor ADC initialization failed\n");
-    }
+    init_encoder(&gAs5600R, &conf, &handle, AS5600_OUT_GPIO_RIGHT, AS5600_ADC_UNIT_ID, "right");
+    init_encoder(&gAs5600L, &conf, &handle, AS5600_OUT_GPIO_LEFT, AS5600_ADC_UNIT_ID, "left");
+    init_encoder(&gAs5600B, &conf, &handle, AS5600_OUT_GPIO_BACK, AS5600_ADC_UNIT_ID, "back");
 
-    gAs5600B.conf = conf; ///< Set the configuration for the back AS5600 sensor
-    gAs5600B.out = AS5600_OUT_GPIO_BACK; ///< Set the OUT GPIO pin for the back AS5600 sensor
-    gAs5600B.adc_handle.adc_handle = handle; ///< Set the ADC handle for the back AS5600 sensor
-    if (!adc_config_channel(&gAs5600B.adc_handle, AS5600_OUT_GPIO_BACK, AS5600_ADC_UNIT_ID)) {
-        ESP_LOGE("AS5600_ADC_CH", "AS5600 back sensor ADC initialization failed\n");
-    }
     ///<--------------------------------------------------
     
     ///<-------------- Initialize the TM151 sensor ------
@@ -140,40 +207,18 @@ void app_main(void)
     ///<--------------------------------------------------
 
     ///<------------- Initialize the PID controllers ------
-    pid_config_t pid_config = {
-        .init_param = pid_paramR
-    };
-    pid_new_control_block(&pid_config, &pidR);
+    control_params_t right_control_params;
+    control_params_t left_control_params;
+    control_params_t back_control_params;
 
-    pid_config.init_param = pid_paramL;
-    pid_new_control_block(&pid_config, &pidL);
+    init_pid_controllers(&right_control_params, &pid_paramR, &gAs5600R,
+                        &right_encoder_data, &pidR, &pwmR);
+    init_pid_controllers(&left_control_params, &pid_paramL, &gAs5600L,
+                        &left_encoder_data, &pidL, &pwmL);
+    init_pid_controllers(&back_control_params, &pid_paramB, &gAs5600B,
+                        &back_encoder_data, &pidB, &pwmB);
 
-    pid_config.init_param = pid_paramB;
-    pid_new_control_block(&pid_config, &pidB);
-    ///<---------------------------------------------------
-
-    static control_params_t right_control_params = {
-        .gStruct = &gAs5600R,
-        .sensor_data = &right_encoder_data,
-        .pid_block = &pidR,
-        .pwm_motor = &pwmR
-    };
-
-    static control_params_t left_control_params = {
-        .gStruct = &gAs5600L,
-        .sensor_data = &left_encoder_data,
-        .pid_block = &pidL,
-        .pwm_motor = &pwmL
-    };
-
-    static control_params_t back_control_params = {
-        .gStruct = &gAs5600B,
-        .sensor_data = &back_encoder_data,
-        .pid_block = &pidB,
-        .pwm_motor = &pwmB
-    };
-
-    vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 1 second to ensure all peripherals are initialized
+    vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 5 seconds to ensure all peripherals are initialized
 
     ///<-------------- Create the task ---------------
 
@@ -240,5 +285,7 @@ void app_main(void)
     ///<-------------------------------------------------
     
     
-
+    for (;;) {
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+    }
 }
