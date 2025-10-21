@@ -62,7 +62,8 @@ uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
  */
 static inline void init_pid_controllers(control_params_t *control_params, pid_parameter_t *pid_param, AS5600_t *gAs5600, 
                                         encoder_data_t *sensor_data, pid_block_handle_t *pid_block,
-                                        bldc_pwm_motor_t *pwm_motor_data)
+                                        bldc_pwm_motor_t *pwm_motor_data, uart_t *uart, imu_data_t *imu_data,
+                                        uint8_t pred_move, uint8_t vel_selection)
 {
     pid_config_t pid_config = {
         .init_param = *pid_param
@@ -74,6 +75,10 @@ static inline void init_pid_controllers(control_params_t *control_params, pid_pa
     control_params->sensor_data = sensor_data;
     control_params->pid_block = pid_block;
     control_params->pwm_motor = pwm_motor_data;
+    control_params->myUART = uart;
+    control_params->imu_data = imu_data;
+    control_params->predef_move = pred_move;
+    control_params->vel_selection = vel_selection;
 }
 
 /**
@@ -133,10 +138,11 @@ static inline void init_blc_motor(bldc_pwm_motor_t *pwm_motor, uint8_t gpio,
 
 void app_main(void)
 {
-    static AS5600_t gAs5600R, gAs5600L, gAs5600B;  ///< AS5600 object for angle sensor right, left and back
-    static vl53l1x_t gVl53l1x;                     ///< VL53L1X object for distance sensor
-    static uart_t myUART;                          ///< UART object for TM151 IMU
-
+    AS5600_t gAs5600R, gAs5600L, gAs5600B;  ///< AS5600 object for angle sensor right, left and back
+    vl53l1x_t gVl53l1x;                     ///< VL53L1X object for distance sensor
+    uart_t myUART;                          ///< UART object for TM151 IMU
+    control_params_t right_control_params, left_control_params, back_control_params;
+    
     extern encoder_data_t right_encoder_data, left_encoder_data, back_encoder_data; ///< Encoder data for right, left and back wheels
     extern imu_data_t imu_data;
     extern lidar_data_t lidar_data;
@@ -228,45 +234,19 @@ void app_main(void)
     }
     ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
     ///<----------------------------------------------------
+   
 
-    static control_params_t right_control_params = {
-        .gStruct = &gAs5600R,
-        .sensor_data = &right_encoder_data,
-        .pid_block = &pidR,
-        .pwm_motor = &pwmR,
+    init_pid_controllers(&right_control_params, &pid_paramR, &gAs5600R, 
+                         &right_encoder_data, &pidR, &pwmR, 
+                         &myUART, &imu_data, 0, 2);
 
-        .myUART = &myUART, ///< UART object for TM151 IMU
-        .imu_data = &imu_data, ///< IMU data
-
-        .predef_move = 0, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 2 ///< Velocity selection for the robot, can be set later
-    };
-
-    static control_params_t left_control_params = {
-        .gStruct = &gAs5600L,
-        .sensor_data = &left_encoder_data,
-        .pid_block = &pidL,
-        .pwm_motor = &pwmL,
-        
-        .myUART = &myUART, ///< UART object for TM151 IMU
-        .imu_data = &imu_data, ///< IMU data
-
-        .predef_move = 1, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 0 ///< Velocity selection for the robot, can be set later
-    };
-
-    static control_params_t back_control_params = {
-        .gStruct = &gAs5600B,
-        .sensor_data = &back_encoder_data,
-        .pid_block = &pidB,
-        .pwm_motor = &pwmB,
-
-        .myUART = &myUART, ///< UART object for TM151 IMU
-        .imu_data = &imu_data, ///< IMU data
-
-        .predef_move = 2, ///< Predefined movements for the robot, can be set later
-        .vel_selection = 1 ///< Velocity selection for the robot, can be set later
-    };
+    init_pid_controllers(&left_control_params, &pid_paramL, &gAs5600L, 
+                         &left_encoder_data, &pidL, &pwmL, 
+                         &myUART, &imu_data, 1, 0);
+    
+    init_pid_controllers(&back_control_params, &pid_paramB, &gAs5600B, 
+                         &back_encoder_data, &pidB, &pwmB, 
+                         &myUART, &imu_data, 2, 1);
 
     static distance_params_t distance_params = {
         .target_distance = 5.0f, ///< Set the target distance to 100 cm
