@@ -41,8 +41,10 @@ typedef struct
     float angle_prev;   /**< Angle in degrees */
     float radio;
 
-    float distance;         /**< Distance in cm */
-    float time_interval;    /**< Time interval in seconds */
+    float distance; // Distance in cm
+    float time_interval; // Time interval in seconds
+
+    uint8_t distance_reached; // Flag to indicate if the distance has been reached
 } encoder_data_t;
 
 /**

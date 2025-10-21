@@ -170,6 +170,17 @@ int pid_update_parameters(pid_block_handle_t pid, const pid_parameter_t *params)
     return PID_OK;
 }
 
+int pid_update_set_point(pid_block_handle_t pid, float set_point)
+{
+    if (!pid) {
+        return PID_ERR_INVALID_ARG; // Invalid argument
+    }
+    
+    pid->set_point = set_point;
+    
+    return PID_OK;
+}
+
 int pid_reset_block(pid_block_handle_t pid)
 {
     if (!pid) {

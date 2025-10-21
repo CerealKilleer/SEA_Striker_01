@@ -1,14 +1,13 @@
 #include "control_main.h"
 
-float predef_move[4][3] = { // {right, left, back} velocity in cm/s
-    {15.0f, -15.0f, 0}, ///< Move forward
-    {0.0f, 0.0f, 0.0f}, ///< Stop
-    {0.0f, 15.0f, -15.0f}, ///< Move diagonally right-forward
-    {0.0f, 0.0f, 0.0f}, ///< Stop
-    {0.0f, -15.0f, 15.0f}, ///< Move diagonally left-forward
-    {0.0f, 0.0f, 0.0f}, ///< Stop
-    {-15.0f, 15.0f, 0}, ///< Move backward
-    {0.0f, 0.0f, 0.0f} ///< Stop
+bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
+float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
+float angle[] = {0.0f, 0.0f, 90.0f, 0.0f, 0.0f, 0.0f, 90.0f, 0.0f}; ///< Angles for the robot in degrees
+
+float predef_move2[3][8] = { // {right, left, back} velocity in cm/s
+    {-15.0f, 0.0f, 15.0f, 0.0f, -15.0f, 0.0f, 15.0f, 0.0f}, ///< Predefined movements for the robots right wheel
+    {15.0f, 0.0f, 15.0f, 0.0f, -15.0f, 0.0f, -15.0f, 0.0f}, ///< Predefined movements for the robots left wheel
+    {0.0f, 0.0f, -15.0f, 0.0f, 15.0f, 0.0f, 0.0f, 0.0f} ///< Predefined movements for the robots back wheel
 };
 
 imu_data_t imu_data = {
@@ -56,7 +55,7 @@ pid_parameter_t pid_paramR = {
     .kd = PID_KD,
     .max_output = 70.0f,
     .min_output = -70.0f,
-    .set_point = 20.0f,
+    .set_point = 0.0f,
     .cal_type = PID_CAL_TYPE_INCREMENTAL,
     .beta = 0.0f
 };
@@ -67,7 +66,7 @@ pid_parameter_t pid_paramL = {
     .kd = PID_KD,
     .max_output = 70.0f,
     .min_output = -70.0f,
-    .set_point = 20.0f,
+    .set_point = 0.0f,
     .cal_type = PID_CAL_TYPE_INCREMENTAL,
     .beta = 0.0f
 };
@@ -78,10 +77,14 @@ pid_parameter_t pid_paramB = {
     .kd = PID_KD,
     .max_output = 70.0f,
     .min_output = -70.0f,
-    .set_point = 20.0f,
+    .set_point = 0.0f,
     .cal_type = PID_CAL_TYPE_INCREMENTAL,
     .beta = 0.0f
 };
+
+enum movements_num movement; ///< Movement type
+float x_vel = .0f, y_vel = .0f; ///< Generalized velocities for the robot
+float goal_time = .0f; ///< Goal time for linear movement in seconds
 
 // Task to read from encoder
 void vTaskEncoder(void * pvParameters) {
@@ -89,24 +92,24 @@ void vTaskEncoder(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
 
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+
     ///<-------------- Get angle through ADC -------------
     while (1) {
+
         encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
 
-        // Get current task handle
-        TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-        // Get task name
-        const char *task_name = pcTaskGetName(xTask);
-
-        // Log every 100ms because of the ESP_LOGI overhead
+        // // Log every 100ms because of the ESP_LOGI overhead
         // static int counter = 0;
         // if (++counter >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Angle: %.2f", encoder_data->angle);
+        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
         //     counter = 0;
-        // }   
-
+        // }
 
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
@@ -115,14 +118,33 @@ void vTaskEncoder(void * pvParameters) {
 
 // Task to read from IMU
 void vTaskIMU(void * pvParameters) {
-    float acceleration[3];
+
+    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
+    imu_data_t *imu_data = (imu_data_t *)params->imu_data; ///< IMU data structure
+    uart_t *myUART = params->myUART; ///< UART object for TM151 IMU
+
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+
+    float acceleration[3], yaw;
     
     while (1) {
-        // // Read acceleration data from TM151 IMU
-        // SerialPort_DataReceived_RawAcc(&myUART, acceleration);
+        // Read acceleration data from TM151 IMU
+        SerialPort_DataReceived_RawAcc(myUART, acceleration); ///< Read acceleration data from TM151 IMU
+        SerialPort_DataReceived_RawYaw(myUART, &yaw); ///< Read yaw data from TM151 IMU
         
-        // // Estimate the velocity using IMU data
-        // estimate_velocity_imu(&imu_data, acceleration[0], SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using IMU data
+        // Estimate the velocity using IMU data
+        // estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using IMU data
+
+        // Log every 100ms because of the ESP_LOGI overhead
+        static int counter = 0;
+        if (++counter >= 150) {  // 2ms × 150 = 300ms
+            ESP_LOGI(task_name, "Acceleration: [\t%.2f,\t%.2f,\t%.2f]\t Yaw: %.2f", acceleration[0], acceleration[1], acceleration[2], yaw);
+            counter = 0;
+        }
         
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
@@ -144,10 +166,21 @@ void vTaskControl( void * pvParameters ){
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
 
-    uint32_t timestamp = 1000000; // 1 second
+    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
+
+    uint32_t timestamp = 1000000, counter = 0; // 1 second
+    bool move = true; ///< Flag to indicate if the robot should move
+
     float est_velocity = 0.0f, last_est_velocity = 0.0f;
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
+    float setpoint = 0.0f;
+
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
 
     while (1)
     {
@@ -155,35 +188,156 @@ void vTaskControl( void * pvParameters ){
         // Low-pass filter
         est_velocity = encoder_data->velocity;
 
-        // est_velocity = beta * last_est_velocity + (1 - beta) * est_velocity; ///< Apply low-pass filter to the estimated velocity when there is more than one sensor
         last_est_velocity = est_velocity; ///< Update the last estimated velocity
 
-        // Update PID Controller
-        pid_compute(*(params->pid_block), est_velocity, &output);
-
-        // Get current task handle
-        TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-        // Get task name
-        const char *task_name = pcTaskGetName(xTask);
-
-        // Log every 100ms because of the ESP_LOGI overhead
-        // static int counter = 0;
-        // if (++counter >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Input: %.2f, Output: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     counter = 0;
-        // }   
-
-        bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
+        switch (movement) ///< Check the movement type
+        {
+        case LINEAR:
+            cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case CIRCULAR:
+            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case ROTATION:
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case DO_NOT_MOVE:
+            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
+            break;
         
-        if(timestamp % 100000 == 0) { ///< Print every 100ms to debug with IMU software
-            // printf("I,%" PRIu32 ",%.4f,%.4f,%.4f,%.4f,%.4f,%.4f\r\n", timestamp, est_velocity, pid_param.set_point, 0.0, output, 0.0, 0.0);
+        default:
+            break;
         }
 
-        timestamp += 2000;  // 2ms in us
-        ///<------------------------------------------
+        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
+            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
+        }
+
+        // Update PID Controller
+        pid_compute(pid_block, est_velocity, &output);
+        bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
+
+        // Log every 100ms because of the ESP_LOGI overhead
+        // static int ctr = 0;
+        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
+        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+        //     ctr = 0;
+        // }
         
         vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
 }
 
+void vTaskDistance(void *pvParameters){
+    
+    distance_params_t *params = (distance_params_t *)pvParameters; ///< Distance parameters structure
+    encoder_data_t *encoder_data_right = params->encoder_data_right; ///< Encoder data structure for right wheel
+    encoder_data_t *encoder_data_left = params->encoder_data_left; ///< Encoder data structure for left wheel
+    encoder_data_t *encoder_data_back = params->encoder_data_back; ///< Encoder data structure for back wheel
+    float dx, dy, distance = 0, beta = 0.9; ///< Variables to store the distance
+
+    while(1){
+        static uint16_t time_count = 0; ///< Counter to keep track of the number of iterations
+
+        if(time_count >= goal_time * 1000 && movement == LINEAR) { ///< Check if the goal time has been reached
+            movement = DO_NOT_MOVE; ///< Set the movement to do not move
+            time_count = 0; ///< Reset the time count
+        } else {
+            time_count += 5 * SAMPLE_TIME; ///< Increment the time count
+        }
+
+        vTaskDelay(5 * SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
+    }
+
+}
+
+void vTaskUDPServer(void *pvParameters)
+{
+
+    // ESP_LOGI("WIFI", "UDP server listening on port %d", PORT);
+
+    char rx_buffer[128];
+    struct sockaddr_in server_addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(PORT),
+        .sin_addr.s_addr = htonl(INADDR_ANY)};
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0)
+    {
+        ESP_LOGE("WIFI", "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        ESP_LOGE("WIFI", "Socket unable to bind: errno %d", errno);
+        close(sock);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    
+
+    while (1)
+    {
+        struct sockaddr_in source_addr;
+        socklen_t socklen = sizeof(source_addr);
+        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0,
+                           (struct sockaddr *)&source_addr, &socklen);
+
+        if (len < 0)
+        {
+            ESP_LOGE("WIFI", "recvfrom failed: errno %d", errno);
+            continue;
+        }
+
+        rx_buffer[len] = 0;
+        ESP_LOGI("WIFI", "Received: %s", rx_buffer);
+
+        if (strncmp(rx_buffer, "L ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity, distance;
+            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &distance);
+            uint8_t forward = 0;
+            if (strcmp(direction, "Forward") == 0)
+            {
+                forward = 1; ///< Set forward movement
+            }
+            else if (strcmp(direction, "Backward") == 0)
+            {
+                forward = 0; ///< Set backward movement
+            }
+            else
+            {
+                ESP_LOGE("WIFI", "Invalid direction: %s", direction);
+                continue;
+            }
+            // lógica de movimiento lineal
+            movement = LINEAR; ///< Set the movement type to linear
+            goal_time = distance / velocity; ///< Calculate the goal time in seconds
+            linear_movement(forward, distance, degrees, &x_vel, &y_vel); ///< Calculate the linear movement
+        }
+        else if (strncmp(rx_buffer, "C ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity, radius;
+            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &radius);
+            // lógica de movimiento circular
+        }
+        else if (strncmp(rx_buffer, "R ", 2) == 0)
+        {
+            char direction[16];
+            float degrees, velocity;
+            sscanf(rx_buffer + 2, "%s %f %f", direction, &degrees, &velocity);
+            // lógica de rotación sobre sí mismo
+        }
+    }
+
+    close(sock);
+
+}
