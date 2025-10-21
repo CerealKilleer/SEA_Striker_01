@@ -36,6 +36,8 @@ typedef struct
 
     float distance; // Distance in cm
     float time_interval; // Time interval in seconds
+
+    uint8_t distance_reached; // Flag to indicate if the distance has been reached
 } encoder_data_t;
 
 typedef struct

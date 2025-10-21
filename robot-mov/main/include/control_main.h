@@ -13,6 +13,8 @@
 #include "bldc_pwm.h"
 #include "pid_ext.h"
 #include "sensor_fusion.h"
+#include "mov_calculation.h"
+#include "wifi_lib.h"
 
 // Include ESP IDF libraries
 #include <assert.h>
@@ -49,11 +51,11 @@
 #define PWM_GPIO_R 20               ///< GPIO number for right PWM signal
 #define PWM_REV_GPIO_R 21           ///< GPIO number for right PWM reverse signal
 
-#define PWM_GPIO_L 10               ///< GPIO number for left PWM signal
-#define PWM_REV_GPIO_L 11           ///< GPIO number for left PWM reverse signal
+#define PWM_GPIO_L 47               ///< GPIO number for left PWM signal
+#define PWM_REV_GPIO_L 48           ///< GPIO number for left PWM reverse signal
 
-#define PWM_GPIO_B 42               ///< GPIO number for back PWM signal
-#define PWM_REV_GPIO_B 41           ///< GPIO number for back PWM reverse signal
+#define PWM_GPIO_B 45               ///< GPIO number for back PWM signal
+#define PWM_REV_GPIO_B 0           ///< GPIO number for back PWM reverse signal
 
 #define PWM_FREQ 50                 ///< PWM frequency in Hz
 #define PWM_RESOLUTION 100000       ///< PWM resolution in bits
@@ -64,19 +66,40 @@
 ///<--------------------------------------------------
 
 ///<-------------- PID configuration -----------------
-#define PID_KP .01f
-#define PID_KI .01f
-#define PID_KD .001f
+#define PID_KP .04//.01f
+#define PID_KI .02//.01f
+#define PID_KD 0.0//.001f
 #define EULER 2.71828
 #define PI 3.14159
 ///<--------------------------------------------------
 
 typedef struct {
-    AS5600_t * gStruct; ///< Velocity estimation from encoder in cm/s
-    encoder_data_t * sensor_data;     ///< Velocity estimation from IMU in cm/s
-    pid_block_handle_t * pid_block;   ///< Velocity estimation from Lidar in cm/s
-    bldc_pwm_motor_t * pwm_motor; ///< BLDC motor object
+    AS5600_t * gStruct;             ///< Velocity estimation from encoder in cm/s
+    encoder_data_t * sensor_data;   ///< Velocity estimation from IMU in cm/s
+    pid_block_handle_t * pid_block; ///< Velocity estimation from Lidar in cm/s
+    bldc_pwm_motor_t * pwm_motor;   ///< BLDC motor object
+
+    uart_t * myUART;                  ///< UART object for TM151 IMU
+    imu_data_t * imu_data;            ///< IMU data
+
+    uint8_t predef_move;            ///< Predefined movements for the robot
+    uint8_t vel_selection;          ///< Velocity selection for the robot
 } control_params_t;
+
+typedef struct {
+    float target_distance; ///< Distance measurement
+    encoder_data_t * encoder_data_right; ///< Encoder data structure for right wheel
+    encoder_data_t * encoder_data_left;  ///< Encoder data structure for left wheel
+    encoder_data_t * encoder_data_back;  ///< Encoder data structure for back wheel
+
+} distance_params_t;
+
+enum movements_num {
+    LINEAR = 0,   ///< Linear movement
+    CIRCULAR = 1, ///< Circular movement
+    ROTATION = 2, ///< Rotation movement
+    DO_NOT_MOVE = 3 ///< Do not move
+};
 
 /**
  * @brief Task to read from encoder
@@ -101,10 +124,15 @@ void vTaskLidar(void * pvParameters);
 void vTaskControl( void * pvParameters );
 
 /**
- * @brief UART task to read data from console
+ * @brief Task to keep track of distace
  * 
- * @param pvParameters 
+ * @param pvParameters
  */
-void vTaskUART(void * pvParameters);
+void vTaskDistance(void * pvParameters);
+
+/**
+ * @brief udp server task to handle incoming requests
+ */
+void vTaskUDPServer(void * pvParameters);
 
 #endif // CONTROL_H

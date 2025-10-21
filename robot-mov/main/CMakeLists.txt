@@ -6,6 +6,7 @@ file(GLOB SRCS_PLATFORM  "../platform/*.c")
 file(GLOB SRCS_BLDC_PWM  "../drivers/bldc_pwm/*.c")
 file(GLOB SRCS_PID_LIB  "../drivers/pid_lib/*.c")
 file(GLOB SRCS_SENSOR_FUSION "../drivers/sensor_fusion/*.c")
+file(GLOB SRCS_WIFI_LIB "../drivers/wifi_lib/*.c")
 
 
 if(ENCODER_CALIBRATION)
