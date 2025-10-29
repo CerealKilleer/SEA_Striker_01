@@ -1,40 +1,90 @@
-# Advanced Embedded Systems
+# Advanced Embedded Systems ⚙️
+The best course in Electronic Engineering has its own repository. Here you'll find a well-organized collection of sensor drivers and some programs developed throughout the course. This project houses a collection of sensor drivers and firmware developed during the course, aimed at controlling and interfacing with various embedded sensors and actuators, specifically focused on robotics.
 
-The best course in Electronic Engineering has its own repository. Here you'll find a well-organized collection of sensor drivers and some programs developed throughout the course.
+## Project Overview 📝
 
-# LAB 1 - [C libraries](./C%20libraries/)
+This repository includes multiple laboratories focused on different aspects of embedded systems, from sensor driver development to robot motion control. Our work has been evolving through various stages, and we’re continuously working on improving and adding new features to make the system more robust, efficient, and adaptable.
 
-The purpose of this laboratory was to develop the drives for the sensors that will be used in the robot. These are the AS5600 magnetic encoder, the VL53L1X long range LiDAR, VL6180X short range LiDAR, APD9960 RGB sensor and the TM151 9-axis IMU.
+---
 
-## Features
+## Current Implementation ⚡️
 
-* Hardware Abstaction Layer: These libraries integrate a hardware abstaction layer (HAL) that can be configured to whatever microcontroller used. The drivers use these HAL functions and, if using other microcontroller different to ESP32-S3, feel free to change these hardware imlpementations to get the drivers work on your device.
+### LAB 1 - [C Libraries](./C%20libraries/) 🛠️
 
+**Overview**:  
+The first lab focuses on creating hardware abstraction layers for several sensors. These sensors are used in the subsequent labs for the robot’s motion and environmental awareness.
 
-# LAB2 - [One-Wheel Movement](./wheel-movement/)
+**Sensors and Devices**:  
+- AS5600 Magnetic Encoder
+- VL53L1X Long Range LiDAR
+- VL6180X Short Range LiDAR
+- APD9960 RGB Sensor
+- TM151 9-axis IMU
 
-This laboratory intended to develop a firmware capable of moving a wheel in a certain velocity and distance. This project implements the AS5600 magnetic encoder, the VL53L1X long range LiDAR and the TM151 9-axis IMU. Nevertheless, at the time, only the encoder is being used for something useful.
+**Features**:
+- Hardware Abstraction Layer (HAL) for seamless integration with different microcontrollers.
+- Designed for easy porting to different platforms; currently tested with ESP32-S3.
 
-## Features
+---
 
-* Velocity controller through incremental PID.
-* Distance controller through encoder arc estimation.
-* Commands through UART interface: One can send commands to the ESP32-S3 to indicate certain things:
-  * ```P %f %f %f %f```: To change PID parameters online (```P <proportional> <integral> <derivative> <set_point>```)
-  * ```X %hd```: Sets a duty cycle (speed PWM) to the ESC (```X <new_pwm>```). *Note this is PWM, not velocity!*
-  * ```S %f```: Changes the set point of the PID (```S <new_set_point>```).
-  * ```D%hu_%f```: This is one of the command for this specific lab. Sets right displacement with a goal distance at a certaing goal velocity (```D<distance>_<velocity>```).
-  * ```I%hu_%f```: This is one of the command for this specific lab. Sets left displacement with a goal distance at a certaing goal velocity (```I<distance>_<velocity>```).
+### LAB 2 - [One-Wheel Movement](./wheel-movement/) 🚗
 
-# LAB 3 - [Robot Movement](./robot-mov/) (**in progress**)
+**Overview**:  
+The goal of this lab is to control the movement of a single wheel using sensor data for feedback and control.
 
-This practice consisted in integrating more actuators and sensors in order to move a 3-wheeled robot.
+**Implemented Features**:
+- **Velocity control** using an incremental PID controller.
+- **Distance control** using encoder arc estimation.
+- **UART Interface Commands** to modify control parameters and system behavior, such as:
+  - ```P <proportional> <integral> <derivative> <set_point>```
+  - ```X <new_pwm>``` (sets PWM duty cycle to control speed)
+  - ```S <new_set_point>``` (changes PID set point)
+  - ```D<distance>_<velocity>``` (sets right displacement with velocity goal)
+  - ```I<distance>_<velocity>``` (sets left displacement with velocity goal)
 
-## Features
+---
 
-* Independent velocity controller through incremental PID.
-* System model to control general robot position and velocity.
-* Commands through WiFi interface to move the robot:
-  * Linear displacement (forward or backwards, at a specified angle, velocity and distance).
-  * In-place rotation (clockwise, counter clockwise, at a specified rotation degrees and velocity).
-  * Circular displacement: (clockwise, counter clockwise, at a specified radius, degrees and velocity).
+### LAB 3 - [Robot Movement](./robot-mov/) 🤖 (**in progress**)
+
+**Overview**:  
+This lab integrates multiple sensors and actuators to move a 3-wheeled robot, expanding on the previous lab’s one-wheel setup.
+
+**Current Features**:
+- **Independent velocity control** for each wheel using an incremental PID controller.
+- **System model** for controlling robot position and velocity.
+- **WiFi interface commands** for more complex motion, such as:
+  - Linear displacement (forward/backward at a specified velocity and angle).
+  - In-place rotation (clockwise/counterclockwise with specified degrees and velocity).
+  - Circular displacement (with a specified radius, direction, velocity, and degrees).
+
+---
+
+## Planned Improvements 🚀
+
+### 1. **Task Synchronization Using Kernel Objects** 🔄  
+We will introduce a more efficient task synchronization method using kernel objects to coordinate between tasks:
+- **Timers**: A timer (ESP_Timmer) will trigger sensor read tasks every 2ms using an ISR with `xTaskNotifyFromISR()`. The encoder readings will be queued for further processing.
+- **Sensor Communication**: Tasks will communicate via queues and event groups. Specifically, the distance measurement task will only execute when new readings are available from all encoders.
+
+### 2. **New Task Creation** 🔧  
+To decouple the control logic and actuator handling, new tasks will be created for each wheel:
+- These tasks will adjust the PWM and wheel direction as requested by the control task.
+- Communication between control and actuator tasks will be managed via queues, ensuring smooth operation and flexibility.
+
+### 3. **Peripheral Enhancements** 🌐  
+We aim to improve the **IMU sensor integration**, which has faced limitations in previous iterations. Specifically, we’ll enhance the sensor fusion algorithm to incorporate IMU readings more effectively for better movement control and orientation tracking.
+
+### 4. **Code Refactor & Documentation 📝**  
+- **Refactoring**: The main codebase contains several repetitive code blocks, indicating the need for functions to modularize tasks. We will review and refactor these sections to improve maintainability and reduce redundancy.
+- **Build Optimization**: We will introduce separate compilation directives for each source file to allow modular building and easier updates.
+
+---
+
+## Getting Started 🏁
+
+Here, we will guide you through the steps to get up and running with this repository.
+
+### Steps to Set Up Your Hardware ⚙️
+
+1. **Setup Speed Controlers**
+2. **Burn Encoders Registers**
