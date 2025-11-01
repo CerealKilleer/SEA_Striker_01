@@ -26,11 +26,15 @@
 #define MIN_PWM_RE 38               ///< Minimum PWM value (does not move)
 ///<--------------------------------------------------
 
-bldc_pwm_motor_t pwmR, pwmR2, pwmL, pwmL2, pwmB, pwmB2; ///< BLDC motor structures
-
+bldc_pwm_motor_t pwmMotor, pwmMotor_R; ///< BLDC motor structures
+enum WHEEL_SELECT {
+    RIGHT,
+    LEFT,
+    BACK
+};
 void app_main(void)
 {
-
+    enum WHEEL_SELECT ws = LEFT;
     vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 10 seconds
     
     bldc_init(&pwmR, PWM_GPIO_R, 10, PWM_FREQ, 1, PWM_RESOLUTION, MIN_PWM_CAL, MAX_PWM_CAL); ///< Initialize the BLDC motor

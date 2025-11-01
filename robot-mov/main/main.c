@@ -204,7 +204,8 @@ void app_main(void)
     }
     */
     ///<----------------------------------------------------
-        
+    */
+    
     ///<-------------- Initialize the VL53L1X sensor -----
     // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
     //     ESP_LOGE(TAG_VL53L1X, "Could not initialize VL53L1X sensor...");
@@ -269,11 +270,13 @@ void app_main(void)
 
     ///<---------------- Initialize the Wifi ----------------
     /*
+    /*
     if (dev_wifi_init() != ESP_OK) {
         ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
         return;
     }
     ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
+    */
     */
     ///<----------------------------------------------------
    
@@ -392,7 +395,6 @@ void app_main(void)
     get_ip_address(); ///< Get the IP address of the device
     */
     ///<-------------------------------------------------
-    for (;;) {
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
+    
+    
 }

@@ -11,4 +11,10 @@ config ESCS_CALIBRATION
     default n
     help
         If y activate the BLC motors calibration
+
+config TEST_WHEELS
+    bool "Activate the compile for test wheelss"
+    default n
+    help
+        If y activate the test wheels
 endmenu
