@@ -68,7 +68,7 @@ void app_main(void)
     AS5600_GetStopPosition(&gAs5600, &stop_position);   ///< Get stop position
     assert(stop_position != 0x0000); ///< Assert that the stop position is set correctly
     ///< -------------
-
+    
     ///< Burn commands
     AS5600_BurnSettingCommand(&gAs5600); ///< TAKE CARE! This command just works once. It will burn the configuration to the EEPROM of the AS5600 sensor.
     AS5600_BurnAngleCommand(&gAs5600);   ///< TAKE CARE! This command just works three times. It will burn the start and end angles to the EEPROM of the AS5600 sensor.

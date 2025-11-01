@@ -19,6 +19,16 @@ elseif (ESCS_CALIBRATION)
                 SRCS "escs_calibration.c" ${SRCS_BLDC_PWM} ${SRCS_PLATFORM}
                 INCLUDE_DIRS "." "../drivers/bldc_pwm/include" "../platform/include"
         )
+elseif (TEST_WHEELS)
+        idf_component_register(
+                idf_component_register(
+                SRCS "test_wheels.c" ${SRCS_AS5600} ${SRCS_TM151} ${SRCS_VL53L1X} ${SRCS_PLATFORM} ${SRCS_BLDC_PWM} ${SRCS_PID_LIB} ${SRCS_SENSOR_FUSION} ${SRCS_WIFI_LIB}
+                INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../sensors/TM151-driver/include" "../sensors/VL53L1X-driver/include"
+                    "../platform/include" "../drivers/bldc_pwm/include" "../drivers/pid_lib/include" "../drivers/sensor_fusion/include"
+                    "../drivers/wifi_lib/include" "./include"
+                PRIV_REQUIRES esp_wifi nvs_flash driver esp_adc esp_timer
+        )
+        )
 else()
         idf_component_register(
                 SRCS "main.c" "control_main.c" "mov_calculation.c" ${SRCS_AS5600} ${SRCS_TM151} ${SRCS_VL53L1X} ${SRCS_PLATFORM} ${SRCS_BLDC_PWM} ${SRCS_PID_LIB} ${SRCS_SENSOR_FUSION} ${SRCS_WIFI_LIB}

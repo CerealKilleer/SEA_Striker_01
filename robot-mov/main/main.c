@@ -184,32 +184,10 @@ void app_main(void)
     static bldc_pwm_motor_t pwmR, pwmL, pwmB;   ///< BLDC motor object right, left and back
     static pid_block_handle_t pidR, pidL, pidB; ///< PID control block handle
 
-    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
-    TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
-    TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
-    TaskHandle_t xEncodersGateKeeper;
-    struct sensor_task_handlers enc_handlers = {
-        .right_task = &xRightEncoderTaskHandle,
-        .left_task = &xLeftEncoderTaskHandle,
-        .back_task = &xBackEncoderTaskHandle,
-    };
-    //Se crean los mutex para acceder a los parametros de cada encoder
-    right_params_mutex = xSemaphoreCreateMutex();
-    left_params_mutex = xSemaphoreCreateMutex();
-    back_params_mutex = xSemaphoreCreateMutex();
+    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels    
 
-    //Se crean las colas para comunicar la tarea de control con la tarea que modifica el PWM en cada rueda
-    rw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    lw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    bw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-
-    //Se crean colas para leer los encoders desde el gatekeeper
-    r_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    l_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    b_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-
-    gk_notification = xQueueCreate(3, sizeof(enum encoder_wheel));
-
+    
+    /*
     ///<---------------- Initialize the Wifi ----------------
     /* 
     if (wifi_init_station() != ESP_OK){
@@ -222,7 +200,8 @@ void app_main(void)
     }
     */
     ///<----------------------------------------------------
-        
+    */
+    
     ///<-------------- Initialize the VL53L1X sensor -----
     // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
     //     ESP_LOGE(TAG_VL53L1X, "Could not initialize VL53L1X sensor...");
@@ -270,6 +249,7 @@ void app_main(void)
     
     ///<-------------- Initialize the TM151 sensor ------
     //tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
+    //tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
     ///<--------------------------------------------------
 
     ///<------------- Initialize the PID controllers ------
@@ -287,11 +267,13 @@ void app_main(void)
 
     ///<---------------- Initialize the Wifi ----------------
     /*
+    /*
     if (dev_wifi_init() != ESP_OK) {
         ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
         return;
     }
     ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
+    */
     */
     ///<----------------------------------------------------
    
@@ -414,7 +396,6 @@ void app_main(void)
     get_ip_address(); ///< Get the IP address of the device
     */
     ///<-------------------------------------------------
-    for (;;) {
-        vTaskDelay(10 / portTICK_PERIOD_MS);
-    }
+    
+    
 }
