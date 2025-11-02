@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 set(ENCODER_CALIBRATION n)
-set(ESCS_CALIBRATION n)
+set(ESCS_CALIBRATION y)
 
 if(ENCODER_CALIBRATION)
         project(encoder_calibration)
