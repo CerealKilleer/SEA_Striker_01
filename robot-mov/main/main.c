@@ -48,12 +48,14 @@
 
 uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
 QueueHandle_t rw_pwm_queue, lw_pwm_queue, bw_pwm_queue; ///< Queues for wheels pwm
-SemaphoreHandle_t right_params_mutex, left_params_mutex, back_params_mutex;
+QueueHandle_t r_enc_queue, l_enc_queue, b_enc_queue; ///< Queues for encoders readings. Gatekeeper
+QueueHandle_t gk_notification;
+SemaphoreHandle_t right_params_mutex, left_params_mutex, back_params_mutex; ///< Queues for control params struct
 
 struct sensor_task_handlers {
-    TaskHandle_t right_task;
-    TaskHandle_t left_task;
-    TaskHandle_t back_task;
+    TaskHandle_t *right_task;
+    TaskHandle_t *left_task;
+    TaskHandle_t *back_task;
 };
 /**
  * @brief Initializes the PID controllers and links all control structures.
@@ -66,6 +68,7 @@ struct sensor_task_handlers {
  * @param[in]     pid_param        Pointer to the structure containing initial PID parameters.
  * @param[in]     gAs5600          Pointer to the AS5600 sensor handle.
  * @param[in]     sensor_data      Pointer to the structure containing encoder or sensor data.
+ * @param[in]     control_task     pointer to wheel control task
  * @param[in,out] pid_block        Pointer to the PID control block to be initialized.
  * @param[in,out] pwm_motor_data   Pointer to the BLDC motor control structure.
  *
@@ -149,16 +152,27 @@ static inline void init_blc_motor(bldc_pwm_motor_t *pwm_motor, uint8_t gpio,
     bldc_set_duty(pwm_motor, 0); ///< Set the duty cycle to 0%
 }
 
+/**
+ * @brief ISR for ESP_Timer
+ *
+ * This function serves the timer interrupt. Notify the gatekeeper task
+ *
+ * @param[in] args Pointer to gatekeeper task handler
+ */
 void timer_isr(void *args) {
-    struct sensor_task_handlers *task = (struct sensor_task_handlers *)args;
-    xTaskNotifyFromISR(task->right_task, 0x01, eSetBits, 0);
-    xTaskNotifyFromISR(task->left_task, 0x01, eSetBits, 0);
-    xTaskNotifyFromISR(task->back_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->right_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->left_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->back_task, 0x01, eSetBits, 0);
 }
 
 void app_main(void)
 {
     AS5600_t gAs5600R, gAs5600L, gAs5600B;  ///< AS5600 object for angle sensor right, left and back
+    struct enc_gk_params gk_params = { ///< AS5600 struct for gatekeeper
+        .r_enc = &gAs5600R,
+        .l_enc = &gAs5600L,
+        .b_enc = &gAs5600B
+    };
     vl53l1x_t gVl53l1x;                     ///< VL53L1X object for distance sensor
     uart_t myUART;                          ///< UART object for TM151 IMU
     control_params_t right_control_params, left_control_params, back_control_params;
@@ -173,9 +187,12 @@ void app_main(void)
     extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
     TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
     TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
-
-    struct sensor_task_handlers sensor_tasks;
-
+    TaskHandle_t xEncodersGateKeeper;
+    struct sensor_task_handlers enc_handlers = {
+        .right_task = &xRightEncoderTaskHandle,
+        .left_task = &xLeftEncoderTaskHandle,
+        .back_task = &xBackEncoderTaskHandle,
+    };
     //Se crean los mutex para acceder a los parametros de cada encoder
     right_params_mutex = xSemaphoreCreateMutex();
     left_params_mutex = xSemaphoreCreateMutex();
@@ -185,6 +202,13 @@ void app_main(void)
     rw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
     lw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
     bw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+
+    //Se crean colas para leer los encoders desde el gatekeeper
+    r_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+    l_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+    b_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+
+    gk_notification = xQueueCreate(3, sizeof(enum encoder_wheel));
 
     ///<---------------- Initialize the Wifi ----------------
     /* 
@@ -294,58 +318,61 @@ void app_main(void)
     vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 5 seconds to ensure all peripherals are initialized
 
     ///<-------------- Create the task ---------------
+    //Creating task for gatekeeper
+    if (xTaskCreate(vTaskEncodersGateKeeper, "enc_gk", 2048, 
+                    (void *)&gk_params, 21, &xEncodersGateKeeper) != pdPASS) {
 
-    xTaskCreatePinnedToCore(vTaskControlRight, "rwh_control_task", 4096, &right_control_params, 19, &xRightControlTaskHandle, 1); ///< Create the task to control the right wheel
-    xTaskCreatePinnedToCore(vTaskControlLeft, "lwh_control_task", 4096, &left_control_params, 19, &xLeftControlTaskHandle, 1);   ///< Create the task to control the left wheel
-    xTaskCreatePinnedToCore(vTaskControlBack, "bwh_control_task", 4096, &back_control_params, 19, &xBackControlTaskHandle, 1);   ///< Create the task to control the back wheel
-
-    configASSERT(xRightControlTaskHandle); ///< Check if the task was created successfully
-    if (xRightControlTaskHandle == NULL) {
-        ESP_LOGE("CTRL_TASK", "Failed to create task...");
+                   ESP_LOGE("Gatekeeper task create", "Failed to create");
+                   return; 
+    }
+    //Creating tasks for encoders
+    if (xTaskCreate(vTaskEncoderRight, "right_encoder_task", 4096, 
+                    &right_control_params, 20, &xRightEncoderTaskHandle) != pdPASS) {
+        ESP_LOGE("ENCODER_TASK_R", "Failed to create task");
         return;
     }
-    configASSERT(xLeftControlTaskHandle); ///< Check if the task was created successfully
-    if (xLeftControlTaskHandle == NULL) {
-        ESP_LOGE("CTRL_TASK", "Failed to create task...");
+    
+    if (xTaskCreate(vTaskEncoderLeft, "left_encoder_task", 4096, 
+                    &left_control_params, 20, &xLeftEncoderTaskHandle) != pdPASS) {
+        ESP_LOGE("ENCODER_TASK_L", "Failed to create task");
         return;
     }
-    configASSERT(xBackControlTaskHandle); ///< Check if the task was created successfully
-    if (xBackControlTaskHandle == NULL) {
-        ESP_LOGE("CTRL_TASK", "Failed to create task...");
+    
+    if (xTaskCreate(vTaskEncoderBack, "back_encoder_task", 4096, 
+                    &back_control_params, 20, &xBackEncoderTaskHandle) != pdPASS) {
+        ESP_LOGE("ENCODER_TASK_B", "Failed to create");
         return;
     }
 
-    xTaskCreatePinnedToCore(vTaskDistance, "distance_task", 4096, &distance_params, 8, &xDistanceTaskHandle, 1); ///< Create the task to keep track of distance
-    configASSERT(xDistanceTaskHandle); ///< Check if the task was created successfully
-    if (xDistanceTaskHandle == NULL) {
-        ESP_LOGE("DISTANCE_TASK", "Failed to create task...");
+    //Creating task for control
+    if (xTaskCreate(vTaskControlRight, "rwh_control_task", 4096, 
+                    &right_control_params, 19, &xRightControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_R", "Failed to create");
+        return;
+    }
+    
+    if (xTaskCreate(vTaskControlLeft, "lwh_control_task", 4096, 
+                    &left_control_params, 19, &xLeftControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_L", "Failed to create task");
+        return;
+    }
+    
+    if (xTaskCreate(vTaskControlBack, "bwh_control_task", 4096, 
+                    &back_control_params, 19, &xBackControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_B", "Failed to create");
+        return;
+    }
+
+    if (xTaskCreate(vTaskDistance, "distance_task", 4096, 
+                    &distance_params, 8, &xDistanceTaskHandle) != pdPASS) {
+        ESP_LOGE("DISTANCE_TASK", "Failed to create task");
         return;
     }
 
     ESP_LOGI("TASKS", "Right encoder handle: 0x%04X", gAs5600R.out); ///< Log the task handles
+    ESP_LOGI("TASKS", "Left encoder handle: 0x%04X", gAs5600L.out); ///< Log the task handles
+    ESP_LOGI("TASKS", "Back encoder handle: 0x%04X", gAs5600B.out); ///< Log the task handles
     
-    xTaskCreate(vTaskEncoderRight, "right_encoder_task", 4096, &right_control_params, 20, &xRightEncoderTaskHandle); ///< Create the task to read from right encoder
-    xTaskCreate(vTaskEncoderLeft, "left_encoder_task", 4096, &left_control_params, 20, &xLeftEncoderTaskHandle);    ///< Create the task to read from left encoder
-    xTaskCreate(vTaskEncoderBack, "back_encoder_task", 4096, &back_control_params, 20, &xBackEncoderTaskHandle);    ///< Create the task to read from back encoder
-
-    configASSERT(xRightEncoderTaskHandle); ///< Check if the task was created successfully
-    if (xRightEncoderTaskHandle == NULL) {
-        ESP_LOGE("ENCODER_TASK", "Failed to create task...");
-        return;
-    }
-    configASSERT(xLeftEncoderTaskHandle); ///< Check if the task was created successfully
-    if (xLeftEncoderTaskHandle == NULL) {
-        ESP_LOGE("ENCODER_TASK", "Failed to create task...");
-        return;
-    }
-    configASSERT(xBackEncoderTaskHandle); ///< Check if the task was created successfully
-    if (xBackEncoderTaskHandle == NULL) {
-        ESP_LOGE("ENCODER_TASK", "Failed to create task...");
-        return;
-    }
-    sensor_tasks.right_task = xRightEncoderTaskHandle;
-    sensor_tasks.left_task = xLeftEncoderTaskHandle;
-    sensor_tasks.back_task = xBackEncoderTaskHandle;
 
     xTaskCreate(vTaskSetPWMRight, "set pwm right", 4096, &right_control_params, 18, NULL);
     xTaskCreate(vTaskSetPWMLeft, "set pwm left", 4096, &left_control_params, 18, NULL);
@@ -356,7 +383,7 @@ void app_main(void)
 
     const esp_timer_create_args_t timer_args = {
         .callback = timer_isr,
-        .arg = (void *)&sensor_tasks,
+        .arg = (void *)&enc_handlers,
         .dispatch_method = ESP_TIMER_ISR,
         .name = "timer isr",
         .skip_unhandled_events = false

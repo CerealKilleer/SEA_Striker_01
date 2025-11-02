@@ -102,12 +102,29 @@ typedef struct {
 
 } distance_params_t;
 
+/// @brief Struct to use as encoder gatekeeper params
+struct enc_gk_params {
+    AS5600_t *r_enc;
+    AS5600_t *l_enc;
+    AS5600_t *b_enc;
+};
+
 enum movements_num {
     LINEAR = 0,   ///< Linear movement
     CIRCULAR = 1, ///< Circular movement
     ROTATION = 2, ///< Rotation movement
     DO_NOT_MOVE = 3 ///< Do not move
 };
+
+enum encoder_wheel {
+    RIGHT,
+    LEFT,
+    BACK
+};
+/**
+ * @brief Gatekeeper task for encoders readings
+ */
+void vTaskEncodersGateKeeper(void *pvParameters);
 
 /**
  * @brief Task to read from right encoder

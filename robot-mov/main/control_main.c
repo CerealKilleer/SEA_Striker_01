@@ -86,8 +86,34 @@ pid_parameter_t pid_paramB = {
 };
 
 enum movements_num movement; ///< Movement type
-float x_vel = 100.0f, y_vel = 0.0f; ///< Generalized velocities for the robot
+float x_vel = 0.0f, y_vel = 100.0f; ///< Generalized velocities for the robot
 float goal_time = 10.0f; ///< Goal time for linear movement in seconds
+
+void vTaskEncodersGateKeeper(void *pvParameters) {
+    extern QueueHandle_t r_enc_queue, l_enc_queue, b_enc_queue;
+    extern QueueHandle_t gk_notification;
+    struct enc_gk_params *params = (struct enc_gk_params *)pvParameters;
+    enum encoder_wheel wheel;
+    float angle;
+
+    while (1) {
+        xQueueReceive(gk_notification, (void *)&wheel, portMAX_DELAY);
+        switch(wheel) {
+        case RIGHT:
+            angle = AS5600_ADC_GetAngle(params->r_enc);
+            xQueueSend(r_enc_queue, (void *)&angle, portMAX_DELAY);
+            break;
+        case LEFT:
+            angle = AS5600_ADC_GetAngle(params->l_enc);
+            xQueueSend(l_enc_queue, (void *)&angle, portMAX_DELAY);
+            break;
+        case BACK:
+            angle = AS5600_ADC_GetAngle(params->b_enc);
+            xQueueSend(b_enc_queue, (void *)&angle, portMAX_DELAY);
+            break;
+        }
+    }
+}
 
 // Task to read from encoder
 void vTaskEncoderRight(void * pvParameters) {
@@ -95,18 +121,26 @@ void vTaskEncoderRight(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
     extern SemaphoreHandle_t right_params_mutex;
+    extern QueueHandle_t r_enc_queue;
+    extern QueueHandle_t gk_notification;
 
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
-
+    enum encoder_wheel wheel = RIGHT;
+    float angle;
+    
     ///<-------------- Get angle through ADC -------------
     while (1) {
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        if (!uxQueueMessagesWaiting(r_enc_queue)) {
+            xQueueSend(gk_notification, &wheel, portMAX_DELAY);
+        }
+        xQueueReceive(r_enc_queue, (void *)&angle, portMAX_DELAY);
         xSemaphoreTake(right_params_mutex, portMAX_DELAY);
-        encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
+        encoder_data->angle = angle; ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
         xSemaphoreGive(right_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
@@ -125,17 +159,24 @@ void vTaskEncoderLeft(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
     extern SemaphoreHandle_t left_params_mutex;
+    extern QueueHandle_t l_enc_queue;
+    extern QueueHandle_t gk_notification;
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
+    float angle;
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
+    enum encoder_wheel wheel = LEFT;
 
     ///<-------------- Get angle through ADC -------------
     while (1) {
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        if (!uxQueueMessagesWaiting(l_enc_queue)) {
+            xQueueSend(gk_notification, &wheel, portMAX_DELAY);
+        }
+        xQueueReceive(l_enc_queue, (void *)&angle, portMAX_DELAY);
         xSemaphoreTake(left_params_mutex, portMAX_DELAY);
-        encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
+        encoder_data->angle = angle; ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
         xSemaphoreGive(left_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
@@ -154,6 +195,10 @@ void vTaskEncoderBack(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
     extern SemaphoreHandle_t back_params_mutex;
+    extern QueueHandle_t b_enc_queue;
+    extern QueueHandle_t gk_notification;
+    enum encoder_wheel wheel = BACK;
+    float angle;
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
@@ -163,8 +208,12 @@ void vTaskEncoderBack(void * pvParameters) {
     ///<-------------- Get angle through ADC -------------
     while (1) {
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        if (!uxQueueMessagesWaiting(b_enc_queue)) {
+            xQueueSend(gk_notification, &wheel, portMAX_DELAY);
+        }
+        xQueueReceive(b_enc_queue, (void *)&angle, portMAX_DELAY);
         xSemaphoreTake(back_params_mutex, portMAX_DELAY);
-        encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
+        encoder_data->angle = angle; ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
         xSemaphoreGive(back_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
@@ -507,7 +556,7 @@ void vTaskDistance(void *pvParameters){
             time_count += 5 * SAMPLE_TIME; ///< Increment the time count
         }
 
-        vTaskDelay(5 * SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 
 }
