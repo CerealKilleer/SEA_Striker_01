@@ -18,20 +18,27 @@
 
 #define WIN_SIZE 35 ///< Size of the window for sampling
 
+/**
+ * @brief typedef for IMUs data
+ */
+
 typedef struct
 {
-    float velocity; // Velocity in cm/s
-    float prev_acc; // Previous acceleration values
+    float velocity; /**< Velocity in cm/s */
+    float prev_acc; /**< Previous acceleration values */
 
-    float window[WIN_SIZE]; // Window for sampling
+    float window[WIN_SIZE]; /**< Window for sampling */
 } imu_data_t;
 
+/**
+ * @brief typedef for encoder's data
+ */
 typedef struct
 {
-    float angle; // Angle in degrees
-    float velocity; // Velocity in cm/s
-    float last_vel; // Last velocity in cm/s
-    float angle_prev; // Angle in degrees
+    float angle;        /**< Angle in degrees */
+    float velocity;     /**< Velocity in cm/s */
+    float last_vel;     /**< Last velocity in cm/s */
+    float angle_prev;   /**< Angle in degrees */
     float radio;
 
     float distance; // Distance in cm
@@ -40,12 +47,14 @@ typedef struct
     uint8_t distance_reached; // Flag to indicate if the distance has been reached
 } encoder_data_t;
 
+/**
+ * @brief typedef for lidar's data
+ */
 typedef struct
 {
-    float velocity; // Velocity in cm/s
-    uint16_t prev_distance; // Previous distance in cm
-    
-    uint16_t start_distance; // Start distance in cm
+    float velocity;             /**< Velocity in cm/s */
+    uint16_t prev_distance;     /**< Previous distance in cm */
+    uint16_t start_distance;    /**< Start distance in cm */
 } lidar_data_t;
 
 /**
