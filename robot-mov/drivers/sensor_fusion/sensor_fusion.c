@@ -63,7 +63,7 @@ void estimate_velocity_encoder(encoder_data_t * encoder_data){
     // Placeholder for velocity estimation logic
     // v(t) = (angle(t) - angle(t-1)) * radio / dt
     // where dt is the time interval between measurements
-    float angle = encoder_data->angle * 3.1415 / 180; ///< Convert angle to radians
+    float angle = encoder_data->angle * 3.1415 / -180.0; ///< Convert angle to radians
     float dist = (angle - encoder_data->angle_prev) * encoder_data->radio; ///< Calculate the distance in cm
 
     // printf("Angle: %0.2f r\tLast Angle: %0.2f r\tDistance: %0.2f cm\t", angle, encoder_data->angle_prev, dist); ///< Log message

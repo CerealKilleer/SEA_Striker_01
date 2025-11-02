@@ -1,4 +1,7 @@
 #include "control_main.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
 
 bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
 float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
@@ -83,14 +86,15 @@ pid_parameter_t pid_paramB = {
 };
 
 enum movements_num movement; ///< Movement type
-float x_vel = .0f, y_vel = .0f; ///< Generalized velocities for the robot
-float goal_time = .0f; ///< Goal time for linear movement in seconds
+float x_vel = 100.0f, y_vel = 0.0f; ///< Generalized velocities for the robot
+float goal_time = 10.0f; ///< Goal time for linear movement in seconds
 
 // Task to read from encoder
-void vTaskEncoder(void * pvParameters) {
+void vTaskEncoderRight(void * pvParameters) {
 
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+    extern SemaphoreHandle_t right_params_mutex;
 
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
@@ -100,18 +104,76 @@ void vTaskEncoder(void * pvParameters) {
 
     ///<-------------- Get angle through ADC -------------
     while (1) {
-
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
         encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
-
+        xSemaphoreGive(right_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
         // static int counter = 0;
         // if (++counter >= 50) {  // 2ms × 50 = 100ms
         //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
         //     counter = 0;
         // }
+        xTaskNotify(*params->control_task, 0x01, eSetBits);
+    }
+    ///<--------------------------------------------------
+}
 
-        vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
+void vTaskEncoderLeft(void * pvParameters) {
+
+    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+    extern SemaphoreHandle_t left_params_mutex;
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+
+    ///<-------------- Get angle through ADC -------------
+    while (1) {
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(left_params_mutex, portMAX_DELAY);
+        encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
+        estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+        xSemaphoreGive(left_params_mutex);
+        // // Log every 100ms because of the ESP_LOGI overhead
+        // static int counter = 0;
+        // if (++counter >= 50) {  // 2ms × 50 = 100ms
+        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
+        //     counter = 0;
+        // }
+        xTaskNotify(*params->control_task, 0x01, eSetBits);
+    }
+    ///<--------------------------------------------------
+}
+
+void vTaskEncoderBack(void * pvParameters) {
+
+    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+    extern SemaphoreHandle_t back_params_mutex;
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+
+    ///<-------------- Get angle through ADC -------------
+    while (1) {
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
+        encoder_data->angle = AS5600_ADC_GetAngle(params->gStruct); ///< Get the angle from the ADC
+        estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+        xSemaphoreGive(back_params_mutex);
+        // // Log every 100ms because of the ESP_LOGI overhead
+        // static int counter = 0;
+        // if (++counter >= 50) {  // 2ms × 50 = 100ms
+        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
+        //     counter = 0;
+        // }
+        xTaskNotify(*params->control_task, 0x01, eSetBits);
     }
     ///<--------------------------------------------------
 }
@@ -160,8 +222,53 @@ void vTaskLidar(void * pvParameters) {
     }
 }
 
-// Task to control the wheel
-void vTaskControl( void * pvParameters ){
+void vTaskSetPWMRight(void *pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    extern SemaphoreHandle_t right_params_mutex;
+    extern QueueHandle_t rw_pwm_queue;
+
+    float value;
+
+    while (1) {
+        xQueueReceive(rw_pwm_queue, (void *)&value, portMAX_DELAY);    
+        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
+        bldc_set_duty(params->pwm_motor, value);
+        xSemaphoreGive(right_params_mutex);
+    }
+}
+
+void vTaskSetPWMLeft(void *pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    extern SemaphoreHandle_t left_params_mutex;
+    extern QueueHandle_t lw_pwm_queue;
+
+    float value;
+
+    while (1) {
+        xQueueReceive(lw_pwm_queue, (void *)&value, portMAX_DELAY);    
+        xSemaphoreTake(left_params_mutex, portMAX_DELAY);
+        bldc_set_duty(params->pwm_motor, value);
+        xSemaphoreGive(left_params_mutex);
+    }
+}
+
+void vTaskSetPWMBack(void *pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    extern SemaphoreHandle_t back_params_mutex;
+    extern QueueHandle_t bw_pwm_queue;
+
+    float value;
+
+    while (1) {
+        xQueueReceive(bw_pwm_queue, (void *)&value, portMAX_DELAY);    
+        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
+        bldc_set_duty(params->pwm_motor, value);
+        xSemaphoreGive(back_params_mutex);
+    }
+}
+
+// Task to control the right wheel
+void vTaskControlRight( void * pvParameters ){
 
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
     encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
@@ -181,19 +288,24 @@ void vTaskControl( void * pvParameters ){
 
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
+    extern SemaphoreHandle_t right_params_mutex;
+    extern QueueHandle_t rw_pwm_queue; 
 
     while (1)
     {
         ///<-------------- PID Control ---------------
         // Low-pass filter
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
         est_velocity = encoder_data->velocity;
 
         last_est_velocity = est_velocity; ///< Update the last estimated velocity
-
+        xSemaphoreGive(right_params_mutex);
+        
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel, y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
             // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
@@ -216,7 +328,7 @@ void vTaskControl( void * pvParameters ){
 
         // Update PID Controller
         pid_compute(pid_block, est_velocity, &output);
-        bldc_set_duty(params->pwm_motor, output); ///< Set the duty cycle to the output of the PID controller
+        xQueueSend(rw_pwm_queue, (void *)&output, portMAX_DELAY); ///< Send data to pwm queue
 
         // Log every 100ms because of the ESP_LOGI overhead
         // static int ctr = 0;
@@ -226,9 +338,156 @@ void vTaskControl( void * pvParameters ){
         //     ctr = 0;
         // }
         
-        vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
     }
 }
+
+// Task to control the left wheel
+void vTaskControlLeft( void * pvParameters ){
+
+    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+
+    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
+
+    uint32_t timestamp = 1000000, counter = 0; // 1 second
+    bool move = true; ///< Flag to indicate if the robot should move
+
+    float est_velocity = 0.0f, last_est_velocity = 0.0f;
+    // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
+    float output = 0.0f;
+    float setpoint = 0.0f;
+
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+    extern SemaphoreHandle_t left_params_mutex;
+    extern QueueHandle_t lw_pwm_queue; 
+
+    while (1)
+    {
+        ///<-------------- PID Control ---------------
+        // Low-pass filter
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(left_params_mutex, portMAX_DELAY);
+        est_velocity = encoder_data->velocity;
+
+        last_est_velocity = est_velocity; ///< Update the last estimated velocity
+        xSemaphoreGive(left_params_mutex);
+        
+        switch (movement) ///< Check the movement type
+        {
+        case LINEAR:
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case CIRCULAR:
+            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case ROTATION:
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case DO_NOT_MOVE:
+            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
+            break;
+        
+        default:
+            break;
+        }
+
+        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
+            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
+        }
+
+        // Update PID Controller
+        pid_compute(pid_block, est_velocity, &output);
+        xQueueSend(lw_pwm_queue, (void *)&output, portMAX_DELAY); ///< Send data to pwm queue
+
+        // Log every 100ms because of the ESP_LOGI overhead
+        // static int ctr = 0;
+        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
+        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+        //     ctr = 0;
+        // }
+        
+    }
+}
+
+void vTaskControlBack( void * pvParameters ){
+
+    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+
+    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
+
+    uint32_t timestamp = 1000000, counter = 0; // 1 second
+    bool move = true; ///< Flag to indicate if the robot should move
+
+    float est_velocity = 0.0f, last_est_velocity = 0.0f;
+    // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
+    float output = 0.0f;
+    float setpoint = 0.0f;
+
+    // Get current task handle
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+
+    // Get task name
+    const char *task_name = pcTaskGetName(xTask);
+    extern SemaphoreHandle_t back_params_mutex;
+    extern QueueHandle_t bw_pwm_queue; 
+
+    while (1)
+    {
+        ///<-------------- PID Control ---------------
+        // Low-pass filter
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
+        est_velocity = encoder_data->velocity;
+
+        last_est_velocity = est_velocity; ///< Update the last estimated velocity
+        xSemaphoreGive(back_params_mutex);
+        
+        switch (movement) ///< Check the movement type
+        {
+        case LINEAR:
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case CIRCULAR:
+            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case ROTATION:
+            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            break;
+        case DO_NOT_MOVE:
+            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
+            break;
+        
+        default:
+            break;
+        }
+
+        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
+            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
+        }
+
+        // Update PID Controller
+        pid_compute(pid_block, est_velocity, &output);
+        xQueueSend(bw_pwm_queue, (void *)&output, portMAX_DELAY); ///< Send data to pwm queue
+
+        // Log every 100ms because of the ESP_LOGI overhead
+        // static int ctr = 0;
+        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
+        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+        //     ctr = 0;
+        // }
+        
+    }
+}
+
 
 void vTaskDistance(void *pvParameters){
     

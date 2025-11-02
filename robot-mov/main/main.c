@@ -38,10 +38,23 @@
 */
 
 #include "control_main.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_timer.h"
+
 #define MCPWM_GROUP_ID(group_id) (0)
+#define MAX_PWM_QUEUE 5
 
 uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
+QueueHandle_t rw_pwm_queue, lw_pwm_queue, bw_pwm_queue; ///< Queues for wheels pwm
+SemaphoreHandle_t right_params_mutex, left_params_mutex, back_params_mutex;
 
+struct sensor_task_handlers {
+    TaskHandle_t right_task;
+    TaskHandle_t left_task;
+    TaskHandle_t back_task;
+};
 /**
  * @brief Initializes the PID controllers and links all control structures.
  *
@@ -63,7 +76,7 @@ uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
 static inline void init_pid_controllers(control_params_t *control_params, pid_parameter_t *pid_param, AS5600_t *gAs5600, 
                                         encoder_data_t *sensor_data, pid_block_handle_t *pid_block,
                                         bldc_pwm_motor_t *pwm_motor_data, uart_t *uart, imu_data_t *imu_data,
-                                        uint8_t pred_move, uint8_t vel_selection)
+                                        uint8_t pred_move, uint8_t vel_selection, TaskHandle_t *control_task)
 {
     pid_config_t pid_config = {
         .init_param = *pid_param
@@ -79,6 +92,7 @@ static inline void init_pid_controllers(control_params_t *control_params, pid_pa
     control_params->imu_data = imu_data;
     control_params->predef_move = pred_move;
     control_params->vel_selection = vel_selection;
+    control_params->control_task = control_task;
 }
 
 /**
@@ -135,6 +149,12 @@ static inline void init_blc_motor(bldc_pwm_motor_t *pwm_motor, uint8_t gpio,
     bldc_set_duty(pwm_motor, 0); ///< Set the duty cycle to 0%
 }
 
+void timer_isr(void *args) {
+    struct sensor_task_handlers *task = (struct sensor_task_handlers *)args;
+    xTaskNotifyFromISR(task->right_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(task->left_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(task->back_task, 0x01, eSetBits, 0);
+}
 
 void app_main(void)
 {
@@ -150,11 +170,24 @@ void app_main(void)
     static bldc_pwm_motor_t pwmR, pwmL, pwmB;   ///< BLDC motor object right, left and back
     static pid_block_handle_t pidR, pidL, pidB; ///< PID control block handle
 
-    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels    
+    extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
+    TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
+    TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
 
-    
+    struct sensor_task_handlers sensor_tasks;
+
+    //Se crean los mutex para acceder a los parametros de cada encoder
+    right_params_mutex = xSemaphoreCreateMutex();
+    left_params_mutex = xSemaphoreCreateMutex();
+    back_params_mutex = xSemaphoreCreateMutex();
+
+    //Se crean las colas para comunicar la tarea de control con la tarea que modifica el PWM en cada rueda
+    rw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+    lw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
+    bw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
 
     ///<---------------- Initialize the Wifi ----------------
+    /* 
     if (wifi_init_station() != ESP_OK){
         ESP_LOGE("WIFI_INIT", "Could not initialize WiFi station mode...");
     
@@ -163,6 +196,7 @@ void app_main(void)
         get_ip_address(); ///< Get the IP address of the ESP32
 
     }
+    */
     ///<----------------------------------------------------
         
     ///<-------------- Initialize the VL53L1X sensor -----
@@ -211,7 +245,7 @@ void app_main(void)
     ///<--------------------------------------------------
     
     ///<-------------- Initialize the TM151 sensor ------
-    tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
+    //tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
     ///<--------------------------------------------------
 
     ///<------------- Initialize the PID controllers ------
@@ -228,25 +262,27 @@ void app_main(void)
     ///<---------------------------------------------------
 
     ///<---------------- Initialize the Wifi ----------------
+    /*
     if (dev_wifi_init() != ESP_OK) {
         ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
         return;
     }
     ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
+    */
     ///<----------------------------------------------------
    
 
     init_pid_controllers(&right_control_params, &pid_paramR, &gAs5600R, 
                          &right_encoder_data, &pidR, &pwmR, 
-                         &myUART, &imu_data, 0, 2);
+                         &myUART, &imu_data, 0, 2, &xRightControlTaskHandle);
 
     init_pid_controllers(&left_control_params, &pid_paramL, &gAs5600L, 
                          &left_encoder_data, &pidL, &pwmL, 
-                         &myUART, &imu_data, 1, 0);
+                         &myUART, &imu_data, 1, 0, &xLeftControlTaskHandle);
     
     init_pid_controllers(&back_control_params, &pid_paramB, &gAs5600B, 
                          &back_encoder_data, &pidB, &pwmB, 
-                         &myUART, &imu_data, 2, 1);
+                         &myUART, &imu_data, 2, 1, &xBackControlTaskHandle);
 
     static distance_params_t distance_params = {
         .target_distance = 5.0f, ///< Set the target distance to 100 cm
@@ -259,12 +295,9 @@ void app_main(void)
 
     ///<-------------- Create the task ---------------
 
-    TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
-    
-    TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
-    xTaskCreatePinnedToCore(vTaskControl, "rwh_control_task", 4096, &right_control_params, 9, &xRightControlTaskHandle, 1); ///< Create the task to control the right wheel
-    xTaskCreatePinnedToCore(vTaskControl, "lwh_control_task", 4096, &left_control_params, 9, &xLeftControlTaskHandle, 1);   ///< Create the task to control the left wheel
-    xTaskCreatePinnedToCore(vTaskControl, "bwh_control_task", 4096, &back_control_params, 9, &xBackControlTaskHandle, 1);   ///< Create the task to control the back wheel
+    xTaskCreatePinnedToCore(vTaskControlRight, "rwh_control_task", 4096, &right_control_params, 19, &xRightControlTaskHandle, 1); ///< Create the task to control the right wheel
+    xTaskCreatePinnedToCore(vTaskControlLeft, "lwh_control_task", 4096, &left_control_params, 19, &xLeftControlTaskHandle, 1);   ///< Create the task to control the left wheel
+    xTaskCreatePinnedToCore(vTaskControlBack, "bwh_control_task", 4096, &back_control_params, 19, &xBackControlTaskHandle, 1);   ///< Create the task to control the back wheel
 
     configASSERT(xRightControlTaskHandle); ///< Check if the task was created successfully
     if (xRightControlTaskHandle == NULL) {
@@ -290,9 +323,10 @@ void app_main(void)
     }
 
     ESP_LOGI("TASKS", "Right encoder handle: 0x%04X", gAs5600R.out); ///< Log the task handles
-    xTaskCreatePinnedToCore(vTaskEncoder, "right_encoder_task", 4096, &right_control_params, 8, &xRightEncoderTaskHandle, 0); ///< Create the task to read from right encoder
-    xTaskCreatePinnedToCore(vTaskEncoder, "left_encoder_task", 4096, &left_control_params, 8, &xLeftEncoderTaskHandle, 0);    ///< Create the task to read from left encoder
-    xTaskCreatePinnedToCore(vTaskEncoder, "back_encoder_task", 4096, &back_control_params, 8, &xBackEncoderTaskHandle, 0);    ///< Create the task to read from back encoder
+    
+    xTaskCreate(vTaskEncoderRight, "right_encoder_task", 4096, &right_control_params, 20, &xRightEncoderTaskHandle); ///< Create the task to read from right encoder
+    xTaskCreate(vTaskEncoderLeft, "left_encoder_task", 4096, &left_control_params, 20, &xLeftEncoderTaskHandle);    ///< Create the task to read from left encoder
+    xTaskCreate(vTaskEncoderBack, "back_encoder_task", 4096, &back_control_params, 20, &xBackEncoderTaskHandle);    ///< Create the task to read from back encoder
 
     configASSERT(xRightEncoderTaskHandle); ///< Check if the task was created successfully
     if (xRightEncoderTaskHandle == NULL) {
@@ -309,6 +343,27 @@ void app_main(void)
         ESP_LOGE("ENCODER_TASK", "Failed to create task...");
         return;
     }
+    sensor_tasks.right_task = xRightEncoderTaskHandle;
+    sensor_tasks.left_task = xLeftEncoderTaskHandle;
+    sensor_tasks.back_task = xBackEncoderTaskHandle;
+
+    xTaskCreate(vTaskSetPWMRight, "set pwm right", 4096, &right_control_params, 18, NULL);
+    xTaskCreate(vTaskSetPWMLeft, "set pwm left", 4096, &left_control_params, 18, NULL);
+    xTaskCreate(vTaskSetPWMBack, "set pwm back", 4096, &back_control_params, 18, NULL);
+    
+    //Se crea el timer de los 2ms
+    esp_timer_handle_t timer_handle;
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = timer_isr,
+        .arg = (void *)&sensor_tasks,
+        .dispatch_method = ESP_TIMER_ISR,
+        .name = "timer isr",
+        .skip_unhandled_events = false
+    };
+
+    esp_timer_create(&timer_args, &timer_handle);
+    esp_timer_start_periodic(timer_handle, 2000);
 
     // TaskHandle_t xIMUTaskHandle = NULL, xLidarTaskHandle = NULL; ///< Task handles
     // xTaskCreatePinnedToCore(vTaskIMU, "imu_task", 4096, &right_control_params, 8, &xIMUTaskHandle, 0); ///< Create the task to read from IMU
@@ -332,9 +387,7 @@ void app_main(void)
     get_ip_address(); ///< Get the IP address of the device
     */
     ///<-------------------------------------------------
-    
-    
     for (;;) {
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }

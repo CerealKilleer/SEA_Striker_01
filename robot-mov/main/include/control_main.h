@@ -54,8 +54,8 @@
 #define PWM_GPIO_L 47               ///< GPIO number for left PWM signal
 #define PWM_REV_GPIO_L 48           ///< GPIO number for left PWM reverse signal
 
-#define PWM_GPIO_B 45               ///< GPIO number for back PWM signal
-#define PWM_REV_GPIO_B 0           ///< GPIO number for back PWM reverse signal
+#define PWM_GPIO_B 14               ///< GPIO number for back PWM signal
+#define PWM_REV_GPIO_B 13           ///< GPIO number for back PWM reverse signal
 
 #define PWM_FREQ 50                 ///< PWM frequency in Hz
 #define PWM_RESOLUTION 100000       ///< PWM resolution in bits
@@ -73,6 +73,10 @@
 #define PI 3.14159
 ///<--------------------------------------------------
 
+#define SELECT_LEFT 0
+#define SELECT_BACK 1
+#define SELECT_RIGHT 2
+
 /***
  * @brief This defines the data necessary to generate PID control for every wheel
  */
@@ -87,7 +91,8 @@ typedef struct {
 
     uint8_t predef_move;            ///< Predefined movements for the robot
     uint8_t vel_selection;          ///< Velocity selection for the robot
-} control_params_t;
+    TaskHandle_t *control_task;      ///< Control task for wheel
+} control_params_t; 
 
 typedef struct {
     float target_distance; ///< Distance measurement
@@ -105,9 +110,34 @@ enum movements_num {
 };
 
 /**
- * @brief Task to read from encoder
+ * @brief Task to read from right encoder
  */
-void vTaskEncoder(void * pvParameters);
+void vTaskEncoderRight(void * pvParameters);
+
+/**
+ * @brief Task to read from left encoder
+ */
+void vTaskEncoderLeft(void * pvParameters);
+
+/**
+ * @brief Task to read from back encoder
+ */
+void vTaskEncoderBack(void * pvParameters);
+
+/**
+ * @brief Task to set the right wheel pwm
+ */
+void vTaskSetPWMRight(void *pvParameters);
+
+/**
+ * @brief Task to set the left wheel pwm
+ */
+void vTaskSetPWMLeft(void *pvParameters);
+
+/**
+ * @brief Task to set the back wheel pwm
+ */
+void vTaskSetPWMBack(void *pvParameters);
 
 /**
  * @brief Task to read from IMU
@@ -120,11 +150,25 @@ void vTaskIMU(void * pvParameters);
 void vTaskLidar(void * pvParameters);
 
 /**
- * @brief Task to control the wheel
+ * @brief Task to control the right wheel
  * 
  * @param pvParameters 
  */
-void vTaskControl( void * pvParameters );
+void vTaskControlRight( void * pvParameters );
+
+/**
+ * @brief Task to control the left wheel
+ * 
+ * @param pvParameters 
+ */
+void vTaskControlLeft( void * pvParameters );
+
+/**
+ * @brief Task to control the back wheel
+ * 
+ * @param pvParameters 
+ */
+void vTaskControlBack( void * pvParameters );
 
 /**
  * @brief Task to keep track of distace
