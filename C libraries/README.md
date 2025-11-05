@@ -62,30 +62,41 @@ This firmware implements the core functionality of the SEA Striker robot: sensor
 ## Key Hardware Peripherals  
 
 ### Encoder: AS5600  
+
 | Parameter | Specification |
 |-----------|-------------|
-| Device | AS5600 – 12-bit programmable contactless magnetic rotary position sensor. :contentReference[oaicite:1]{index=1} |
-| Output modes | 12-bit analog voltage or PWM or I²C raw angle. :contentReference[oaicite:2]{index=2} |
-| Angular resolution | 12-bit → 4096 positions/rotation. :contentReference[oaicite:3]{index=3} |
-| Supply voltage | 3.3 V or 5 V compatible. :contentReference[oaicite:4]{index=4} |
-| Operating temperature | –40 °C to +125 °C. :contentReference[oaicite:5]{index=5} |
-| Interface | I²C (address 0x36 default) plus optional PWM/Analog. :contentReference[oaicite:6]{index=6} |
-| Key features | Contactless measurement, no mechanical wear, programmable start/stop angle, direction pin (DIR) controls increasing or decreasing angle. :contentReference[oaicite:7]{index=7} |
+| Device | AS5600 – 12-bit programmable contactless magnetic rotary position sensor. |
+| Output modes | 12-bit analog voltage or PWM or I²C raw angle. |
+| Angular resolution | 12-bit → 4096 positions/rotation. |
+| Supply voltage | 3.3 V or 5 V compatible. |
+| Operating temperature | –40 °C to +125 °C.|
+| Interface | I²C (address 0x36 default) plus optional PWM/Analog. |
+| Key features | Contactless measurement, no mechanical wear, programmable start/stop angle, direction pin (DIR) controls increasing or decreasing angle.  |
 
-**Usage in this project**: Configured for analog output mode (for this robot). Histéresis set to 2 LSB to avoid jitter when the wheel is stationary. Output analog range from 10% to 90% of VCC.  
+The following image shows the Raw Angle in Clockwise Direction according to the magnet position
+![alt text](img/encoder_function.png)
+
+For more details see the [Encoder AS5600 Datasheet](https://files.seeedstudio.com/wiki/Grove-12-bit-Magnetic-Rotary-Position-Sensor-AS5600/res/Magnetic%20Rotary%20Position%20Sensor%20AS5600%20Datasheet.pdf)
+
+**Usage in this project**: Configured for analog output mode (for this robot). Hysteresis set to 2 LSB to avoid jitter when the wheel is stationary. Output analog range from 10% to 90% of VCC. 
+It can be configured and calibrated through the I²C interface when operating in configuration mode.
 
 ---
 
 ### Speed Controller: HobbyWing SkyWalker 60A  
 | Parameter | Specification |
 |-----------|-------------|
-| Device | SkyWalker 60A ESC – Brushless motor speed controller. :contentReference[oaicite:9]{index=9} |
-| Continuous current | 60 A (burst up to ~80 A for short periods) for the 60A UBEC variant. :contentReference[oaicite:10]{index=10} |
-| Input voltage (battery) | 2–6 S LiPo (for 60A UBEC version) or 3–6S depending on variant. :contentReference[oaicite:11]{index=11} |
-| BEC output | Switch-mode 5 V @ 5 A (UBEC version). :contentReference[oaicite:12]{index=12} |
-| Max motor RPM (2-pole motor) | Up to ~210 000 rpm (2-pole) depending on variant. :contentReference[oaicite:13]{index=13} |
-| Dimensions / Weight | Approximately 77 × 35 × 14 mm, ~63 g (for 60A UBEC). :contentReference[oaicite:14]{index=14} |
-| Features | Advanced MCU (32-bit) for motor control, multiple protections (low voltage, thermal, throttle signal loss), programmable via transmitter/LED box. :contentReference[oaicite:15]{index=15} |
+| Device | SkyWalker 60A ESC – Brushless motor speed controller.  |
+| Continuous current | 60 A (burst up to ~80 A for short periods) for the 60A UBEC variant.  |
+| Input voltage (battery) | 2–6 S LiPo (for 60A UBEC version) or 3–6S depending on variant.  |
+| BEC output | Switch-mode 5 V @ 5 A (UBEC version). |
+| Max motor RPM (2-pole motor) | Up to ~210 000 rpm (2-pole) depending on variant. |
+| Dimensions / Weight | Approximately 77 × 35 × 14 mm, ~63 g (for 60A UBEC).  |
+| Features | Advanced 32-bit MCU (with a running frequency of up to 96MHz) for motor control, multiple protections (low voltage, thermal, throttle signal loss), programmable via transmitter/LED box.  |
+| Programable Items | Brake Type, Brake Force, Voltage Cutoff Type, LiPo Cells, Start-up Mode, Timing, Active Freewheeling, Search Mode |
+
+For more information about the configuration and sounds review the [ESC Datasheet](https://www.hobbywing.com/en/uploads/file/20230321/69381b562c41439ee4451c7152905f10.pdf)
+
 
 **Usage in this project**: Two speed controllers are used for drive wheels. They are configured for “reverse displacement” (inversion of direction), and provide regulated 5 V output for the microcontroller. PWM outputs from MCU (via MCPWM) control motor speed and direction.
 
@@ -94,21 +105,15 @@ This firmware implements the core functionality of the SEA Striker robot: sensor
 ### IMU: TransducerM TM151 (9-axis AHRS)  
 | Parameter | Specification |
 |-----------|-------------|
-| Device | TM151 IMU – 9-axis (accelerometer + gyroscope + magnetometer) attitude and heading reference system. :contentReference[oaicite:17]{index=17} |
-| Output | Roll, pitch, yaw, quaternions; raw accelerations/gyro/magnetometer. :contentReference[oaicite:18]{index=18} |
-| Typical gyroscope range | ±1000°/s (typical) for this model. :contentReference[oaicite:19]{index=19} |
-| Output update rate | Up to ~400 Hz (configurable) for orientation output. :contentReference[oaicite:20]{index=20} |
-| Power & interface | Compatible with 3.3/5 V, interface UART (TTL) or USB-C (VCP). :contentReference[oaicite:21]{index=21} |
-| Yaw drift | Approx. ~3° every 25 minutes under flat conditions (yaw drift spec). :contentReference[oaicite:22]{index=22} |
+| Device | TM151 IMU – 9-axis (accelerometer + gyroscope + magnetometer) attitude and heading reference system. |
+| Output | Roll, pitch, yaw, quaternions; raw accelerations/gyro/magnetometer.  |
+| Typical gyroscope range | ±1000°/s (typical) for this model.  |
+| Output update rate | Up to ~400 Hz (configurable) for orientation output. |
+| Power & interface | Compatible with 3.3/5 V, interface UART (TTL) or USB-C (VCP).  |
+| Yaw drift | Approx. ~3° every 25 minutes under flat conditions (yaw drift spec).  |
+
+For more details see [TM151 Information](https://www.syd-dynamics.com/transducerm_tm151-tm171/)
 
 **Usage in this project**: Intended for sensor fusion (together with encoders and lidar) to estimate robot orientation and velocity. At present, the sensor-fusion module remains in a preliminary state (many functions inactive), but the IMU driver is available.
 
 ---
-
-### Key Modules & Functionality  
-- **Platform Abstraction**: `platform.c` provides a single point for hardware interface changes (e.g., migrating to a different microcontroller).  
-- **Sensor Drivers**: Modular drivers allow easy adaptation of new sensors or reconfiguration.  
-- **Control Loop**: The PID module computes wheel velocities based on encoder feedback and commands the MCPWM module to actuate the ESCs.  
-- **Task Scheduling**: Using FreeRTOS, tasks are defined for each sensor and control loop (e.g., `vTaskEncoder()`, `vTaskIMU()`, `vTaskControl()`, etc.). Note: some tasks (e.g., LiDAR, WiFi) are currently disabled because they are non-functional in this iteration.  
-- **Motion Kinematics**: `mov_calculation.c` performs conversion from linear/circular motion commands to per-wheel angular velocities, based on robot geometry.  
-- **Calibration Routines**: For initial setup of encoders and ESCs, calibration tasks are supplied to save configuration to non-volatile memory.
