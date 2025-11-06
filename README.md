@@ -78,6 +78,9 @@ We aim to improve the **IMU sensor integration**, which has faced limitations in
 - **Refactoring**: The main codebase contains several repetitive code blocks, indicating the need for functions to modularize tasks. We will review and refactor these sections to improve maintainability and reduce redundancy.
 - **Build Optimization**: We will introduce separate compilation directives for each source file to allow modular building and easier updates.
 
+The following diagram illustrates the proposed task synchronization scheme, which introduces a gatekeeper mechanism for ADC readings.A periodic timer with a 2 ms interval triggers each encoder task, which then sends a notification to a queue when it requires an ADC measurement. The gatekeeper task processes these requests sequentially, performs the corresponding ADC reading, and sends the result back to the encoder’s queue. Once the encoder task receives the ADC value, it computes the wheel velocity and subsequently notifies its respective control task.
+
+![alt text](Diagrama_Tareas_Mejora.png)
 ---
 
 ## Getting Started 🏁
