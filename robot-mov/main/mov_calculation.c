@@ -44,7 +44,7 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, uint8_t vel_sel
     switch (vel_selection)  // vel_selection is a constant expression
     {
     case 0: // left wheel
-        *wheel_velocity = scale * ( - sin_d * x_velocity - cos_d * y_velocity ) / 5;
+        *wheel_velocity = -(scale * ( - sin_d * x_velocity - cos_d * y_velocity ) / 5);
         break;
     case 1: // back wheel
         *wheel_velocity = scale * ( x_velocity ) / 5; ///< Adjusted for consistency;

@@ -52,11 +52,6 @@ QueueHandle_t r_enc_queue, l_enc_queue, b_enc_queue; ///< Queues for encoders re
 QueueHandle_t gk_notification;
 SemaphoreHandle_t right_params_mutex, left_params_mutex, back_params_mutex; ///< Queues for control params struct
 
-struct sensor_task_handlers {
-    TaskHandle_t *right_task;
-    TaskHandle_t *left_task;
-    TaskHandle_t *back_task;
-};
 /**
  * @brief Initializes the PID controllers and links all control structures.
  *
@@ -160,19 +155,13 @@ static inline void init_blc_motor(bldc_pwm_motor_t *pwm_motor, uint8_t gpio,
  * @param[in] args Pointer to gatekeeper task handler
  */
 void timer_isr(void *args) {
-    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->right_task, 0x01, eSetBits, 0);
-    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->left_task, 0x01, eSetBits, 0);
-    xTaskNotifyFromISR(*((struct sensor_task_handlers *)args)->back_task, 0x01, eSetBits, 0);
+    xTaskNotifyFromISR(*((TaskHandle_t *)args), 0x01, eSetBits, 0);
 }
 
 void app_main(void)
 {
     AS5600_t gAs5600R, gAs5600L, gAs5600B;  ///< AS5600 object for angle sensor right, left and back
-    struct enc_gk_params gk_params = { ///< AS5600 struct for gatekeeper
-        .r_enc = &gAs5600R,
-        .l_enc = &gAs5600L,
-        .b_enc = &gAs5600B
-    };
+
     vl53l1x_t gVl53l1x;                     ///< VL53L1X object for distance sensor
     uart_t myUART;                          ///< UART object for TM151 IMU
     control_params_t right_control_params, left_control_params, back_control_params;
@@ -188,27 +177,20 @@ void app_main(void)
     TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
     TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
     TaskHandle_t xEncodersGateKeeper;
-    struct sensor_task_handlers enc_handlers = {
-        .right_task = &xRightEncoderTaskHandle,
-        .left_task = &xLeftEncoderTaskHandle,
-        .back_task = &xBackEncoderTaskHandle,
+    
+    struct enc_gk_params gk_params = { ///< AS5600 struct for gatekeeper
+        .r_enc = &gAs5600R,
+        .l_enc = &gAs5600L,
+        .b_enc = &gAs5600B,
+        .r_wheel = &xRightEncoderTaskHandle,
+        .l_wheel = &xLeftEncoderTaskHandle,
+        .b_wheel = &xBackEncoderTaskHandle
     };
+
     //Se crean los mutex para acceder a los parametros de cada encoder
     right_params_mutex = xSemaphoreCreateMutex();
     left_params_mutex = xSemaphoreCreateMutex();
     back_params_mutex = xSemaphoreCreateMutex();
-
-    //Se crean las colas para comunicar la tarea de control con la tarea que modifica el PWM en cada rueda
-    rw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    lw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    bw_pwm_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-
-    //Se crean colas para leer los encoders desde el gatekeeper
-    r_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    l_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-    b_enc_queue = xQueueCreate(MAX_PWM_QUEUE, sizeof(float));
-
-    gk_notification = xQueueCreate(3, sizeof(enum encoder_wheel));
 
     ///<---------------- Initialize the Wifi ----------------
     /* 
@@ -269,7 +251,7 @@ void app_main(void)
     ///<--------------------------------------------------
     
     ///<-------------- Initialize the TM151 sensor ------
-    //tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
+    tm151_init(&myUART, TM151_UART_BAUDRATE, TM151_BUFFER_SIZE, TM151_UART_TX, TM151_UART_RX); ///< Initialize the TM151 sensor
     ///<--------------------------------------------------
 
     ///<------------- Initialize the PID controllers ------
@@ -374,16 +356,12 @@ void app_main(void)
     ESP_LOGI("TASKS", "Back encoder handle: 0x%04X", gAs5600B.out); ///< Log the task handles
     
 
-    xTaskCreate(vTaskSetPWMRight, "set pwm right", 4096, &right_control_params, 18, NULL);
-    xTaskCreate(vTaskSetPWMLeft, "set pwm left", 4096, &left_control_params, 18, NULL);
-    xTaskCreate(vTaskSetPWMBack, "set pwm back", 4096, &back_control_params, 18, NULL);
-    
     //Se crea el timer de los 2ms
     esp_timer_handle_t timer_handle;
 
     const esp_timer_create_args_t timer_args = {
         .callback = timer_isr,
-        .arg = (void *)&enc_handlers,
+        .arg = (void *)&xEncodersGateKeeper,
         .dispatch_method = ESP_TIMER_ISR,
         .name = "timer isr",
         .skip_unhandled_events = false
@@ -391,14 +369,14 @@ void app_main(void)
 
     esp_timer_create(&timer_args, &timer_handle);
     esp_timer_start_periodic(timer_handle, 2000);
-
-    // TaskHandle_t xIMUTaskHandle = NULL, xLidarTaskHandle = NULL; ///< Task handles
-    // xTaskCreatePinnedToCore(vTaskIMU, "imu_task", 4096, &right_control_params, 8, &xIMUTaskHandle, 0); ///< Create the task to read from IMU
-    // configASSERT(xIMUTaskHandle); ///< Check if the task was created successfully
-    // if (xIMUTaskHandle == NULL) {
-    //     ESP_LOGE("IMU_TASK", "Failed to create task...");
-    //     return;
-    // }
+    
+    TaskHandle_t xIMUTaskHandle = NULL, xLidarTaskHandle = NULL; ///< Task handles
+    xTaskCreate(vTaskIMU, "imu_task", 4096, &right_control_params, 8, &xIMUTaskHandle); ///< Create the task to read from IMU
+    configASSERT(xIMUTaskHandle); ///< Check if the task was created successfully
+    if (xIMUTaskHandle == NULL) {
+        ESP_LOGE("IMU_TASK", "Failed to create task...");
+        return;
+    }
 
     // xTaskCreate(vTaskLidar, "lidar_task", 2048, NULL, 9, &xLidarTaskHandle); ///< Create the task to read from Lidar
     // configASSERT(xLidarTaskHandle); ///< Check if the task was created successfully

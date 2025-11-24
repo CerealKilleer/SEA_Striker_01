@@ -107,6 +107,10 @@ struct enc_gk_params {
     AS5600_t *r_enc;
     AS5600_t *l_enc;
     AS5600_t *b_enc;
+    TaskHandle_t *r_wheel;
+    TaskHandle_t *l_wheel;
+    TaskHandle_t *b_wheel;
+
 };
 
 enum movements_num {
@@ -116,11 +120,11 @@ enum movements_num {
     DO_NOT_MOVE = 3 ///< Do not move
 };
 
-enum encoder_wheel {
-    RIGHT,
-    LEFT,
-    BACK
+union float_to_int32 {
+    float f_value;
+    uint32_t int_value;
 };
+
 /**
  * @brief Gatekeeper task for encoders readings
  */
