@@ -35,7 +35,7 @@
 
   <h2>ESP32 IP Configuration</h2>
   <p>Set the IP address of your ESP32 device below:</p>
-  <input id="esp32_ip" type="text" placeholder="ESP32 IP" value="http://192.168.4.1">
+  <input id="esp32_ip" type="text" placeholder="ESP32 IP" value="http://192.168.88.197">
 
   <!-- Line Movement -->
   <form id="lineMovement">
@@ -76,26 +76,34 @@
   </form>
 
   <script>
-    const ESP32_IP = document.getElementById("esp32_ip"); // ✅ CORREGIDO
+    const ESP32_IP = document.getElementById("esp32_ip"); //
 
     function sendCommand(endpoint, data) {
-      const params = new URLSearchParams(data);
+    const params = new URLSearchParams(data);
 
-      fetch(`${ESP32_IP.value}/${endpoint}?${params}`)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error("ESP32 respondió con error: " + response.status);
-          }
-          return response.text();
-        })
-        .then(text => {
-          alert("Respuesta ESP32: " + text);
-        })
-        .catch(error => {
-          console.error(error);
-          alert("Error - No connection with ESP32");
-        });
-    }
+    let ip = ESP32_IP.value
+                .replace("http://", "")
+                .replace("https://", "")
+                .replace(/\/+$/, "");   // elimina / al final
+
+    const url = `http://${ip}/${endpoint}?${params}`;
+
+    fetch(url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("ESP32 respondió con error: " + response.status);
+        }
+        return response.text();
+      })
+      .then(text => {
+        alert("Respuesta ESP32: " + text);
+      })
+      .catch(error => {
+        console.error(error);
+        alert("Error - No connection with ESP32");
+      });
+  }
+
 
     // Handler: Line Movement
     document.getElementById("lineMovement").onsubmit = function (e) {

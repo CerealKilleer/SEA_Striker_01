@@ -24,8 +24,8 @@
 #ifndef _WIFI_LIB_H_
 #define _WIFI_LIB_H_
 
-#define WIFI_SSID "Nelson's S24"//"Howlers - UdeA"
-#define WIFI_PASS "1234567890" //"9876543210"
+#define WIFI_SSID "IoT"//"Howlers - UdeA"
+#define WIFI_PASS "iot2025-" //"9876543210"
 #define WIFI_MAXIMUM_RETRY 5
 #define PORT 3333
 

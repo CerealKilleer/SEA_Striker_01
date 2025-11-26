@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "esp_http_server.h"
 
 bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
 float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
@@ -86,8 +87,8 @@ pid_parameter_t pid_paramB = {
 };
 
 enum movements_num movement; ///< Movement type
-float x_vel = 0.0f, y_vel = 50.0f; ///< Generalized velocities for the robot
-float goal_time = 10.0f; ///< Goal time for linear movement in seconds
+float x_vel = 0.0f, y_vel = 0.0f; ///< Generalized velocities for the robot
+float goal_time = 0.0f; ///< Goal time for linear movement in seconds
 
 void vTaskEncodersGateKeeper(void *pvParameters) {
     struct enc_gk_params *params = (struct enc_gk_params *)pvParameters;
@@ -221,10 +222,7 @@ void vTaskIMU(void * pvParameters) {
         // estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using IMU data
 
         // Log every 100ms because of the ESP_LOGI overhead
-        static int counter = 0;
-        
-        ESP_LOGI(task_name, "Acceleration: [\t%.2f,\t%.2f,\t%.2f]\t Yaw: %.2f", acceleration[0], acceleration[1], acceleration[2], yaw);
-        counter = 0;
+        /*ESP_LOGI(task_name, "Acceleration: [\t%.2f,\t%.2f,\t%.2f]\t Yaw: %.2f", acceleration[0], acceleration[1], acceleration[2], yaw);*/
         
         vTaskDelay(300 / portTICK_PERIOD_MS); ///< Wait for 300ms
     }
@@ -291,7 +289,7 @@ void vTaskControlRight( void * pvParameters ){
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
             break;
-        
+            
         default:
             break;
         }
@@ -305,12 +303,13 @@ void vTaskControlRight( void * pvParameters ){
         bldc_set_duty(params->pwm_motor, output);
 
         // Log every 100ms because of the ESP_LOGI overhead
-        // static int ctr = 0;
-        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
-        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-        //     ctr = 0;
-        // }
+         static int ctr = 0;
+         if (++ctr >= 150) {  // 2ms × 50 = 100ms
+             // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+             ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+             ESP_LOGI(task_name, "X_vel: %.2f\tY_vel: %.2f", x_vel, y_vel); ///< Log the PID parameters
+             ctr = 0;
+          }
         
     }
 }
@@ -486,91 +485,159 @@ void vTaskDistance(void *pvParameters){
 
 }
 
-void vTaskUDPServer(void *pvParameters)
-{
+static bool get_param(httpd_req_t *req, const char *key, char *value, size_t max_len) {
+    char query[200];
+    if (httpd_req_get_url_query_len(req) >= sizeof(query)) return false;
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK) return false;
 
-    // ESP_LOGI("WIFI", "UDP server listening on port %d", PORT);
+    if (httpd_query_key_value(query, key, value, max_len) == ESP_OK) {
+        return true;
+    }
+    return false;
+}
 
-    char rx_buffer[128];
-    struct sockaddr_in server_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(PORT),
-        .sin_addr.s_addr = htonl(INADDR_ANY)};
 
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock < 0)
-    {
-        ESP_LOGE("WIFI", "Unable to create socket: errno %d", errno);
-        vTaskDelete(NULL);
-        return;
+esp_err_t line_handler(httpd_req_t *req) {
+    char direction[16], degrees_s[16], velocity_s[16], distance_s[16];
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+
+    // Leer parámetros GET
+    if (!get_param(req, "direction", direction, sizeof(direction)) ||
+        !get_param(req, "degrees", degrees_s, sizeof(degrees_s)) ||
+        !get_param(req, "velocity", velocity_s, sizeof(velocity_s)) ||
+        !get_param(req, "distance", distance_s, sizeof(distance_s))) {
+
+        httpd_resp_sendstr(req, "Missing parameters");
+        return ESP_FAIL;
     }
 
-    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-    {
-        ESP_LOGE("WIFI", "Socket unable to bind: errno %d", errno);
-        close(sock);
-        vTaskDelete(NULL);
-        return;
+    float degrees = atof(degrees_s);
+    float velocity = atof(velocity_s);
+    float distance = atof(distance_s);
+
+    uint8_t forward = strcmp(direction, "Forward") == 0 ? 1 : 0;
+    movement = LINEAR; ///< Set the movement type to linear
+    goal_time = distance / velocity; ///< Calculate the goal time in seconds
+    linear_movement(forward, velocity, degrees, &x_vel, &y_vel); ///< Calculate the linear movement
+
+    ESP_LOGI("HTTP", "LINE movement: dir=%s deg=%.2f vel=%.2f dist=%.2f",
+             direction, degrees, velocity, distance);
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+
+esp_err_t circular_handler(httpd_req_t *req) {
+    char direction[16], degrees_s[16], velocity_s[16], radius_s[16];
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+
+    if (!get_param(req, "direction", direction, sizeof(direction)) ||
+        !get_param(req, "degrees", degrees_s, sizeof(degrees_s)) ||
+        !get_param(req, "velocity", velocity_s, sizeof(velocity_s)) ||
+        !get_param(req, "distance", radius_s, sizeof(radius_s))) {
+
+        httpd_resp_sendstr(req, "Missing parameters");
+        return ESP_FAIL;
     }
 
-    
+    float degrees = atof(degrees_s);
+    float velocity = atof(velocity_s);
+    float radius = atof(radius_s);
 
-    while (1)
-    {
-        struct sockaddr_in source_addr;
-        socklen_t socklen = sizeof(source_addr);
-        int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0,
-                           (struct sockaddr *)&source_addr, &socklen);
+    ESP_LOGI("HTTP", "CIRCULAR: dir=%s deg=%.2f vel=%.2f radius=%.2f",
+             direction, degrees, velocity, radius);
 
-        if (len < 0)
-        {
-            ESP_LOGE("WIFI", "recvfrom failed: errno %d", errno);
-            continue;
-        }
+    // Aquí va tu lógica de movimiento circular
+    // circular_movement(...)
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
 
-        rx_buffer[len] = 0;
-        ESP_LOGI("WIFI", "Received: %s", rx_buffer);
 
-        if (strncmp(rx_buffer, "L ", 2) == 0)
-        {
-            char direction[16];
-            float degrees, velocity, distance;
-            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &distance);
-            uint8_t forward = 0;
-            if (strcmp(direction, "Forward") == 0)
-            {
-                forward = 1; ///< Set forward movement
-            }
-            else if (strcmp(direction, "Backward") == 0)
-            {
-                forward = 0; ///< Set backward movement
-            }
-            else
-            {
-                ESP_LOGE("WIFI", "Invalid direction: %s", direction);
-                continue;
-            }
-            // lógica de movimiento lineal
-            movement = LINEAR; ///< Set the movement type to linear
-            goal_time = distance / velocity; ///< Calculate the goal time in seconds
-            linear_movement(forward, distance, degrees, &x_vel, &y_vel); ///< Calculate the linear movement
-        }
-        else if (strncmp(rx_buffer, "C ", 2) == 0)
-        {
-            char direction[16];
-            float degrees, velocity, radius;
-            sscanf(rx_buffer + 2, "%s %f %f %f", direction, &degrees, &velocity, &radius);
-            // lógica de movimiento circular
-        }
-        else if (strncmp(rx_buffer, "R ", 2) == 0)
-        {
-            char direction[16];
-            float degrees, velocity;
-            sscanf(rx_buffer + 2, "%s %f %f", direction, &degrees, &velocity);
-            // lógica de rotación sobre sí mismo
-        }
+esp_err_t rotation_handler(httpd_req_t *req) {
+    char direction[16], degrees_s[16], velocity_s[16];
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+
+    if (!get_param(req, "direction", direction, sizeof(direction)) ||
+        !get_param(req, "degrees", degrees_s, sizeof(degrees_s)) ||
+        !get_param(req, "velocity", velocity_s, sizeof(velocity_s))) {
+
+        httpd_resp_sendstr(req, "Missing parameters");
+        return ESP_FAIL;
     }
 
-    close(sock);
+    float degrees = atof(degrees_s);
+    float velocity = atof(velocity_s);
 
+    ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
+             direction, degrees, velocity);
+
+    // Tu lógica de rotación
+    // rotate_robot(...)
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "OK");
+    return ESP_OK;
+}
+
+static esp_err_t cors_options_handler(httpd_req_t *req) {
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+
+    // Respuesta vacía en OPTIONS
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+
+httpd_handle_t start_http_server(void) {
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.uri_match_fn = httpd_uri_match_wildcard;
+
+    httpd_handle_t server = NULL;
+    if (httpd_start(&server, &config) == ESP_OK) {
+
+        httpd_uri_t uri_line = {
+            .uri = "/lineMovement",
+            .method = HTTP_GET,
+            .handler = line_handler
+        };
+
+        httpd_uri_t uri_circle = {
+            .uri = "/circularMovement",
+            .method = HTTP_GET,
+            .handler = circular_handler
+        };
+
+        httpd_uri_t uri_rotate = {
+            .uri = "/selfRotation",
+            .method = HTTP_GET,
+            .handler = rotation_handler
+        };
+
+        httpd_uri_t cors_options = {
+            .uri = "/",
+            .method = HTTP_OPTIONS,
+            .handler = cors_options_handler
+        };
+
+        httpd_register_uri_handler(server, &cors_options);
+        httpd_register_uri_handler(server, &uri_line);
+        httpd_register_uri_handler(server, &uri_circle);
+        httpd_register_uri_handler(server, &uri_rotate);
+
+        ESP_LOGI("HTTP", "HTTP Server started");
+    }
+
+    return server;
 }

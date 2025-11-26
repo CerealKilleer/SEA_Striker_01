@@ -193,29 +193,15 @@ void app_main(void)
     back_params_mutex = xSemaphoreCreateMutex();
 
     ///<---------------- Initialize the Wifi ----------------
-    /* 
-    if (wifi_init_station() != ESP_OK){
-        ESP_LOGE("WIFI_INIT", "Could not initialize WiFi station mode...");
     
-    } else {    
-        ESP_LOGI("WIFI_INIT", "WiFi station mode initialized successfully...");
-        get_ip_address(); ///< Get the IP address of the ESP32
-
+    if (dev_wifi_init() != ESP_OK) {
+        ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
+        return;
     }
-    */
-    ///<----------------------------------------------------
-    */
+    ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
+    start_http_server();
     
-    ///<-------------- Initialize the VL53L1X sensor -----
-    // if(!VL53L1X_init(&gVl53l1x, VL53L1X_I2C_PORT, VL53L1X_SCL_GPIO, VL53L1X_SDA_GPIO, 0)){
-    //     ESP_LOGE(TAG_VL53L1X, "Could not initialize VL53L1X sensor...");
-    //     return;
-    // }
-    // VL53L1X_setDistanceMode(&gVl53l1x, Short); 
-    // VL53L1X_setMeasurementTimingBudget(&gVl53l1x, 20000);
-    // VL53L1X_startContinuous(&gVl53l1x, SAMPLE_TIME);
-    // vTaskDelay(500 / portTICK_PERIOD_MS); ///< Wait for 500 ms
-    ///<--------------------------------------------------
+    ///<----------------------------------------------------
 
     ///<------- Initialize the BLDC motors PWMs ----------
     init_blc_motor(&pwmR, PWM_GPIO_R, PWM_REV_GPIO_R, PWM_FREQ, MCPWM_GROUP_ID(0), 
@@ -268,18 +254,6 @@ void app_main(void)
     pid_new_control_block(&pid_config, &pidB);
     ///<---------------------------------------------------
 
-    ///<---------------- Initialize the Wifi ----------------
-    /*
-    /*
-    if (dev_wifi_init() != ESP_OK) {
-        ESP_LOGE("TAG_WIFI", "Failed to initialize Wi-Fi");
-        return;
-    }
-    ESP_LOGI("TAG_WIFI", "Wi-Fi initialized successfully");
-    */
-    */
-    ///<----------------------------------------------------
-   
 
     init_pid_controllers(&right_control_params, &pid_paramR, &gAs5600R, 
                          &right_encoder_data, &pidR, &pwmR, 
@@ -380,21 +354,8 @@ void app_main(void)
         ESP_LOGE("IMU_TASK", "Failed to create task...");
         return;
     }
-
-    // xTaskCreate(vTaskLidar, "lidar_task", 2048, NULL, 9, &xLidarTaskHandle); ///< Create the task to read from Lidar
-    // configASSERT(xLidarTaskHandle); ///< Check if the task was created successfully
-    // if (xLidarTaskHandle == NULL) {
-    //     ESP_LOGE("LIDAR_TASK", "Failed to create task...");
-    //     return;
-    // }
-
-    /// <------------------ WiFi ------------------------
-    /*
-    xTaskCreatePinnedToCore(vTaskUDPServer, "UDPServer", 2048, NULL, 8, NULL, 1); ///< Create the task for UDP server
-    ESP_LOGI("TASKS", "UDP Server task created successfully");
-    get_ip_address(); ///< Get the IP address of the device
-    */
-    ///<-------------------------------------------------
-    
-    
+ 
+    for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }

@@ -22,7 +22,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "driver/gptimer.h"
-
+#include "esp_http_server.h"
 #define SAMPLE_TIME 2 ///< Sample time in ms
 #define WHEEL_RADIO 3.0f ///< Radio of the wheel in cm
 
@@ -202,5 +202,7 @@ void vTaskDistance(void * pvParameters);
  * @brief udp server task to handle incoming requests
  */
 void vTaskUDPServer(void * pvParameters);
+
+httpd_handle_t start_http_server(void);
 
 #endif // CONTROL_H
