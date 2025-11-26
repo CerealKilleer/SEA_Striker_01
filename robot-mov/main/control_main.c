@@ -553,7 +553,6 @@ esp_err_t circular_handler(httpd_req_t *req) {
     ESP_LOGI("HTTP", "CIRCULAR: dir=%s deg=%.2f vel=%.2f radius=%.2f",
              direction, degrees, velocity, radius);
 
-    // Aquí va tu lógica de movimiento circular
     // circular_movement(...)
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
@@ -581,7 +580,6 @@ esp_err_t rotation_handler(httpd_req_t *req) {
     ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
              direction, degrees, velocity);
 
-    // Tu lógica de rotación
     // rotate_robot(...)
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
