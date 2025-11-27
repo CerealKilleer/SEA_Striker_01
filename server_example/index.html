@@ -35,7 +35,7 @@
 
   <h2>ESP32 IP Configuration</h2>
   <p>Set the IP address of your ESP32 device below:</p>
-  <input id="esp32_ip" type="text" placeholder="ESP32 IP" value="http://192.168.88.197">
+  <input id="esp32_ip" type="text" placeholder="ESP32 IP" value="http://192.168.88.193">
 
   <!-- Line Movement -->
   <form id="lineMovement">
@@ -102,8 +102,7 @@
         console.error(error);
         alert("Error - No connection with ESP32");
       });
-  }
-
+    }
 
     // Handler: Line Movement
     document.getElementById("lineMovement").onsubmit = function (e) {

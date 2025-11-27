@@ -310,7 +310,6 @@ void vTaskControlRight( void * pvParameters ){
              ESP_LOGI(task_name, "X_vel: %.2f\tY_vel: %.2f", x_vel, y_vel); ///< Log the PID parameters
              ctr = 0;
           }
-        
     }
 }
 
@@ -485,6 +484,7 @@ void vTaskDistance(void *pvParameters){
 
 }
 
+
 static bool get_param(httpd_req_t *req, const char *key, char *value, size_t max_len) {
     char query[200];
     if (httpd_req_get_url_query_len(req) >= sizeof(query)) return false;
@@ -503,7 +503,6 @@ esp_err_t line_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
 
-    // Leer parámetros GET
     if (!get_param(req, "direction", direction, sizeof(direction)) ||
         !get_param(req, "degrees", degrees_s, sizeof(degrees_s)) ||
         !get_param(req, "velocity", velocity_s, sizeof(velocity_s)) ||
@@ -518,13 +517,13 @@ esp_err_t line_handler(httpd_req_t *req) {
     float distance = atof(distance_s);
 
     uint8_t forward = strcmp(direction, "Forward") == 0 ? 1 : 0;
-    movement = LINEAR; ///< Set the movement type to linear
-    goal_time = distance / velocity; ///< Calculate the goal time in seconds
-    linear_movement(forward, velocity, degrees, &x_vel, &y_vel); ///< Calculate the linear movement
 
     ESP_LOGI("HTTP", "LINE movement: dir=%s deg=%.2f vel=%.2f dist=%.2f",
              direction, degrees, velocity, distance);
 
+    movement = LINEAR;
+    goal_time = distance / velocity;
+    linear_movement(forward, velocity, degrees, &x_vel, &y_vel);
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
@@ -553,6 +552,7 @@ esp_err_t circular_handler(httpd_req_t *req) {
     ESP_LOGI("HTTP", "CIRCULAR: dir=%s deg=%.2f vel=%.2f radius=%.2f",
              direction, degrees, velocity, radius);
 
+    // Aquí va tu lógica de movimiento circular
     // circular_movement(...)
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
@@ -580,6 +580,7 @@ esp_err_t rotation_handler(httpd_req_t *req) {
     ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
              direction, degrees, velocity);
 
+    // Tu lógica de rotación
     // rotate_robot(...)
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
