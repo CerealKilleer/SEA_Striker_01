@@ -11,6 +11,13 @@
 #define N     16      ///< Reduction factor for the transformation (planetary gear ratio)
 #define R     3.25f   ///< Radius of the wheel in cm
 
+enum movements_num {
+    LINEAR = 0,   ///< Linear movement
+    CIRCULAR = 1, ///< Circular movement
+    ROTATION = 2, ///< Rotation movement
+    DO_NOT_MOVE = 3 ///< Do not move
+};
+
 /**
  * @brief Calculate the linear movement of the robot.
  * @param forward True if the movement is forward, false if backward.
@@ -39,6 +46,8 @@ void circular_movement(bool cw, float linear_velocity, float angle, float radius
  * @param vel_selection Selection for which wheel's velocity to calculate (0: left, 1: back, 2: right).
  * @param wheel_velocity Pointer to store the calculated wheel velocity in cm/s.
  */
-void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, uint8_t vel_selection, float *wheel_velocity);
+void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
+                             uint8_t vel_selection, float *wheel_velocity);
 
+float rotate_on_axis(bool cw, float wb_rad_s, float angle_deg, enum movements_num *movements);
 #endif // MOV_CALCULATION_H

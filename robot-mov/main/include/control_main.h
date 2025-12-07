@@ -113,13 +113,6 @@ struct enc_gk_params {
 
 };
 
-enum movements_num {
-    LINEAR = 0,   ///< Linear movement
-    CIRCULAR = 1, ///< Circular movement
-    ROTATION = 2, ///< Rotation movement
-    DO_NOT_MOVE = 3 ///< Do not move
-};
-
 union float_to_int32 {
     float f_value;
     uint32_t int_value;

@@ -4,11 +4,13 @@
 #include "freertos/queue.h"
 #include "esp_http_server.h"
 #include "kalman_filter_1d.h"
+#include "mov_calculation.h"
 
 float degrees;
 float velocity;
 float radius;
 bool cw;
+float wb;
 
 bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
 float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
@@ -287,14 +289,13 @@ void vTaskControlRight( void * pvParameters ){
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
     float setpoint = 0.0f;
-
+    float wb_rad_s;
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
     extern SemaphoreHandle_t right_params_mutex;
-    extern QueueHandle_t rw_pwm_queue; 
 
     while (1)
     {
@@ -310,14 +311,15 @@ void vTaskControlRight( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
             circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_RIGHT, &setpoint);
             break;
         case ROTATION:
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -361,14 +363,13 @@ void vTaskControlLeft( void * pvParameters ){
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
     float setpoint = 0.0f;
-
+    float wb_rad_s;
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
     extern SemaphoreHandle_t left_params_mutex;
-    extern QueueHandle_t lw_pwm_queue; 
 
     while (1)
     {
@@ -384,14 +385,15 @@ void vTaskControlLeft( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
             circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -434,14 +436,13 @@ void vTaskControlBack( void * pvParameters ){
     // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
     float output = 0.0f;
     float setpoint = 0.0f;
-
+    float wb_rad_s;
     // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
 
     // Get task name
     const char *task_name = pcTaskGetName(xTask);
     extern SemaphoreHandle_t back_params_mutex;
-    extern QueueHandle_t bw_pwm_queue; 
 
     while (1)
     {
@@ -457,14 +458,15 @@ void vTaskControlBack( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
             circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -611,8 +613,10 @@ esp_err_t rotation_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    float degrees = atof(degrees_s);
-    float velocity = atof(velocity_s);
+    degrees = atof(degrees_s);
+    wb = atof(velocity_s);
+    movement = ROTATION;
+    cw = strcmp(direction, "cw") == 0 ? 1 : 0;
 
     ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
              direction, degrees, velocity);
