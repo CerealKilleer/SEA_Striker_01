@@ -3,6 +3,12 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_http_server.h"
+#include "kalman_filter_1d.h"
+
+float degrees;
+float velocity;
+float radius;
+bool cw;
 
 bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
 float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
@@ -65,8 +71,8 @@ pid_parameter_t pid_paramR = {
 };
 
 pid_parameter_t pid_paramL = {
-    .kp = 0.04,
-    .ki = 0.03,
+    .kp = 0.02,
+    .ki = 0.01,
     .kd = 0.00,
     .max_output = 70.0f,
     .min_output = -70.0f,
@@ -77,7 +83,7 @@ pid_parameter_t pid_paramL = {
 
 pid_parameter_t pid_paramB = {
     .kp = PID_KP,
-    .ki = PID_KI,
+    .ki = 0.007,
     .kd = PID_KD,
     .max_output = 70.0f,
     .min_output = -70.0f,
@@ -86,9 +92,20 @@ pid_parameter_t pid_paramB = {
     .beta = 0.0f
 };
 
+kalman_filter_t km_right_wheel, km_left_wheel, km_back_wheel;
 enum movements_num movement; ///< Movement type
 float x_vel = 0.0f, y_vel = 0.0f; ///< Generalized velocities for the robot
 float goal_time = 0.0f; ///< Goal time for linear movement in seconds
+
+/**
+ * @brief Inicializa por defecto las estructuras del filtro de kalman para las ruedas
+ */
+void init_kalman_parameters(void)
+{
+    kalman_init(&km_right_wheel, 0.005f, 1.0f);
+    kalman_init(&km_left_wheel, 0.005f, 1.0f);
+    kalman_init(&km_back_wheel, 0.005f, 1.0f);
+}
 
 void vTaskEncodersGateKeeper(void *pvParameters) {
     struct enc_gk_params *params = (struct enc_gk_params *)pvParameters;
@@ -125,6 +142,11 @@ void vTaskEncoderRight(void * pvParameters) {
         encoder_data->angle = angle.f_value; ///< Get the angle from the ADC
         static int ctr = 0;
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+
+        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+        kalman_update(&km_right_wheel, encoder_data->velocity);
+        encoder_data->last_vel = encoder_data->velocity;
+
         xSemaphoreGive(right_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
         // static int counter = 0;
@@ -154,6 +176,11 @@ void vTaskEncoderLeft(void * pvParameters) {
         xSemaphoreTake(left_params_mutex, portMAX_DELAY);
         encoder_data->angle = -angle.f_value; ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+        
+        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+        kalman_update(&km_left_wheel, encoder_data->velocity);
+        encoder_data->last_vel = encoder_data->velocity;
+
         xSemaphoreGive(left_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
         // static int counter = 0;
@@ -186,6 +213,12 @@ void vTaskEncoderBack(void * pvParameters) {
         
         encoder_data->angle = angle.f_value; ///< Get the angle from the ADC
         estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+
+        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+        kalman_update(&km_back_wheel, encoder_data->velocity);
+        encoder_data->last_vel = encoder_data->velocity;
+
+
         xSemaphoreGive(back_params_mutex);
         // // Log every 100ms because of the ESP_LOGI overhead
         // static int counter = 0;
@@ -280,8 +313,8 @@ void vTaskControlRight( void * pvParameters ){
             cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            //circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
             // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
@@ -354,8 +387,8 @@ void vTaskControlLeft( void * pvParameters ){
             cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
             // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
@@ -427,8 +460,8 @@ void vTaskControlBack( void * pvParameters ){
             cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            // circular_movement(1, 5, 360, 15, &x_vel, &y_vel); ///< Calculate the circular movement
-            // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
             // cal_lin_to_ang_velocity(params->x_vel, params->y_vel, params->vel_selection, &setpoint); ///< Calculate the setpoint based on the predefined movements
@@ -445,17 +478,18 @@ void vTaskControlBack( void * pvParameters ){
             ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
         }
 
+        static int ctr = 0;
+         if (++ctr >= 150) {  // 2ms × 50 = 100ms
+             // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
+             ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
+             ESP_LOGI(task_name, "X_vel: %.2f\tY_vel: %.2f", x_vel, y_vel); ///< Log the PID parameters
+             ctr = 0;
+          }
         // Update PID Controller
         pid_compute(pid_block, est_velocity, &output);
         bldc_set_duty(params->pwm_motor, output);
 
-        // Log every 100ms because of the ESP_LOGI overhead
-        // static int ctr = 0;
-        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
-        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-        //     ctr = 0;
-        // }
+        
         
     }
 }
@@ -475,7 +509,8 @@ void vTaskDistance(void *pvParameters){
         if(time_count >= goal_time * 1000 && movement == LINEAR) { ///< Check if the goal time has been reached
             movement = DO_NOT_MOVE; ///< Set the movement to do not move
             time_count = 0; ///< Reset the time count
-        } else {
+            goal_time = 0;
+        } else if (movement != DO_NOT_MOVE) {
             time_count += 5 * SAMPLE_TIME; ///< Increment the time count
         }
 
@@ -498,7 +533,7 @@ static bool get_param(httpd_req_t *req, const char *key, char *value, size_t max
 
 
 esp_err_t line_handler(httpd_req_t *req) {
-    char direction[16], degrees_s[16], velocity_s[16], distance_s[16];
+    char direction[16], degrees_s[16], velocity_s[16], time_s[16];
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
@@ -506,7 +541,7 @@ esp_err_t line_handler(httpd_req_t *req) {
     if (!get_param(req, "direction", direction, sizeof(direction)) ||
         !get_param(req, "degrees", degrees_s, sizeof(degrees_s)) ||
         !get_param(req, "velocity", velocity_s, sizeof(velocity_s)) ||
-        !get_param(req, "distance", distance_s, sizeof(distance_s))) {
+        !get_param(req, "time", time_s, sizeof(time_s))) {
 
         httpd_resp_sendstr(req, "Missing parameters");
         return ESP_FAIL;
@@ -514,15 +549,15 @@ esp_err_t line_handler(httpd_req_t *req) {
 
     float degrees = atof(degrees_s);
     float velocity = atof(velocity_s);
-    float distance = atof(distance_s);
+    float time = atof(time_s);
 
     uint8_t forward = strcmp(direction, "Forward") == 0 ? 1 : 0;
 
-    ESP_LOGI("HTTP", "LINE movement: dir=%s deg=%.2f vel=%.2f dist=%.2f",
-             direction, degrees, velocity, distance);
+    ESP_LOGI("HTTP", "LINE movement: dir=%s deg=%.2f vel=%.2f time=%.2f",
+             direction, degrees, velocity, time);
 
     movement = LINEAR;
-    goal_time = distance / velocity;
+    goal_time = time;
     linear_movement(forward, velocity, degrees, &x_vel, &y_vel);
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
@@ -545,12 +580,15 @@ esp_err_t circular_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    float degrees = atof(degrees_s);
-    float velocity = atof(velocity_s);
-    float radius = atof(radius_s);
+    degrees = atof(degrees_s);
+    velocity = atof(velocity_s);
+    radius = atof(radius_s);
+    
+    ESP_LOGI("HTTP", "CIRCULAR: cw = %d dir=%s deg=%.2f vel=%.2f radius=%.2f",
+             cw, direction, degrees, velocity, radius);
 
-    ESP_LOGI("HTTP", "CIRCULAR: dir=%s deg=%.2f vel=%.2f radius=%.2f",
-             direction, degrees, velocity, radius);
+    movement = CIRCULAR;
+    cw = strcmp(direction, "cw") == 0 ? 1 : 0;
 
     // circular_movement(...)
     httpd_resp_set_type(req, "text/plain");

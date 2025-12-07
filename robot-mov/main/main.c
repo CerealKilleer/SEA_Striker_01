@@ -328,6 +328,8 @@ void app_main(void)
         return;
     }
 
+    //Se inicializa el filtro de kalman para los encoders
+    init_kalman_parameters();
     ESP_LOGI("TASKS", "Right encoder handle: 0x%04X", gAs5600R.out); ///< Log the task handles
     ESP_LOGI("TASKS", "Left encoder handle: 0x%04X", gAs5600L.out); ///< Log the task handles
     ESP_LOGI("TASKS", "Back encoder handle: 0x%04X", gAs5600B.out); ///< Log the task handles

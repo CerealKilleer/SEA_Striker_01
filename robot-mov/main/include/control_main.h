@@ -55,7 +55,7 @@
 #define PWM_REV_GPIO_L 48           ///< GPIO number for left PWM reverse signal
 
 #define PWM_GPIO_B 14               ///< GPIO number for back PWM signal
-#define PWM_REV_GPIO_B 11           ///< GPIO number for back PWM reverse signal
+#define PWM_REV_GPIO_B 12           ///< GPIO number for back PWM reverse signal
 
 #define PWM_FREQ 50                 ///< PWM frequency in Hz
 #define PWM_RESOLUTION 100000       ///< PWM resolution in bits
@@ -205,4 +205,5 @@ void vTaskUDPServer(void * pvParameters);
 
 httpd_handle_t start_http_server(void);
 
+void init_kalman_parameters(void);
 #endif // CONTROL_H

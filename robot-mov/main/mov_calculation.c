@@ -1,4 +1,5 @@
 #include "mov_calculation.h"
+float t;
 
 void linear_movement(bool forward, float linear_velocity, float angle, float *x_velocity, float *y_velocity) {
     if (forward) {
@@ -11,13 +12,13 @@ void linear_movement(bool forward, float linear_velocity, float angle, float *x_
 }
 
 void circular_movement(bool cw, float linear_velocity, float angle, float radius, float *x_velocity, float *y_velocity) {
-    static float t = 0;
+    
 
     if (t < (angle / 360.0) * 2 * PI * radius / linear_velocity) { ///< Time to reach the goal angle in seconds 360° is a full circle
 
         if (cw) {
             *x_velocity = -radius * sinf((linear_velocity / radius) * t);
-            *y_velocity =  radius * cosf((linear_velocity / radius) * t);
+            *y_velocity = radius * cosf((linear_velocity / radius) * t);
         } else {
             *x_velocity = -radius * sinf((linear_velocity / radius) * t);
             *y_velocity = -radius * cosf((linear_velocity / radius) * t);
@@ -29,7 +30,6 @@ void circular_movement(bool cw, float linear_velocity, float angle, float radius
 
         *x_velocity = 0.0f; ///< Stop the movement
         *y_velocity = 0.0f; ///< Stop the movement
-        
     }
 }
 
