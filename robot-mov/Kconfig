@@ -19,7 +19,12 @@ config TEST_WHEELS
         If y activate the test wheels
 config TEST_IMU
     bool "Activate the compile for test IMU"
-    default ns
+    default n
     help
         If y activate the test IMU
+config TEST_VEL_WHEEL
+    bool "Activate the compile for test VEL in Wheels"
+    default n
+    help
+        If y activate the test Vel in Wheels
 endmenu

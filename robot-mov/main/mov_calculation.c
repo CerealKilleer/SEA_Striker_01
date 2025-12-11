@@ -44,17 +44,17 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
     {
     case 0: // Left wheel at 150°
         // vector unitario = (sin150, cos150) = (0.5, -0.866)
-        *wheel_velocity = -scale * ( sin_d * x_velocity  - cos_d * y_velocity + R * wb ) / 5;
+        *wheel_velocity = -scale * ( sin_d * x_velocity  - cos_d * y_velocity + R * wb ) /2.5;
         break;
 
     case 1: // Back wheel at 270°
         // vector = (sin270, cos270) = (-1, 0)
-        *wheel_velocity = scale * ( -1.0f * x_velocity + R * wb ) / 5;
+        *wheel_velocity = scale * ( -1.0f * x_velocity + R * wb ) / 2;
         break;
 
     case 2: // Right wheel at 30°
         // vector = (sin30, cos30) = (0.5, 0.866)
-        *wheel_velocity = scale * ( sin_d * x_velocity + cos_d * y_velocity + R * wb ) / 5;
+        *wheel_velocity = scale * ( sin_d * x_velocity + cos_d * y_velocity + R * wb ) / 2.8;
         break;
 
     default:

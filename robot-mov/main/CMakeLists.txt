@@ -34,6 +34,13 @@ elseif (TEST_IMU)
                 SRCS "test_IMU.c" "kalman_filter_1d.c" ${SRCS_TM151} ${SRCS_PLATFORM}
                 INCLUDE_DIRS "." "../sensors/TM151-driver/include" "../platform/include" "./include"
         )
+elseif (TEST_VEL_WHEEL)
+        idf_component_register(
+                SRCS "test_velocity_wheel.c" "kalman_filter_1d.c" ${SRCS_BLDC_PWM} ${SRCS_AS5600} ${SRCS_SENSOR_FUSION} ${SRCS_PID_LIB} ${SRCS_PLATFORM}
+                INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../drivers/bldc_pwm/include" "../platform/include" "./include"
+                        "../drivers/sensor_fusion/include" "../drivers/pid_lib/include"
+                PRIV_REQUIRES esp_adc esp_timer
+        )
 else()
         idf_component_register(
                 SRCS "main.c" "control_main.c" "mov_calculation.c"  "kalman_filter_1d.c" ${SRCS_AS5600} ${SRCS_TM151} ${SRCS_VL53L1X} ${SRCS_PLATFORM} ${SRCS_BLDC_PWM} ${SRCS_PID_LIB} ${SRCS_SENSOR_FUSION} ${SRCS_WIFI_LIB}

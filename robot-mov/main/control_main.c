@@ -250,8 +250,8 @@ void vTaskIMU(void * pvParameters) {
     
     while (1) {
         // Read acceleration data from TM151 IMU
-        SerialPort_DataReceived_RawAcc(myUART, acceleration); ///< Read acceleration data from TM151 IMU
-        SerialPort_DataReceived_RawYaw(myUART, &yaw); ///< Read yaw data from TM151 IMU
+        // SerialPort_DataReceived_RawAcc(myUART, acceleration); ///< Read acceleration data from TM151 IMU
+        // SerialPort_DataReceived_RawYaw(myUART, &yaw); ///< Read yaw data from TM151 IMU
         
         // Estimate the velocity using IMU data
         // estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using IMU data
@@ -639,11 +639,6 @@ esp_err_t reset_handler(httpd_req_t *req) {
     x_vel = 0.0f;
     y_vel = 0.0f;
     goal_time = 0.0f;
-
-    bldc_set_duty(pwm_right_motor, 0.0f);
-    bldc_set_duty(pwm_left_motor, 0.0f);
-    bldc_set_duty(pwm_back_motor, 0.0f);
-
 
 
     httpd_resp_set_type(req, "text/plain");
