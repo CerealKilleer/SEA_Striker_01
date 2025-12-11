@@ -627,6 +627,30 @@ esp_err_t rotation_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+esp_err_t reset_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+
+    ESP_LOGI("HTTP", "ABORT/RESET: Stopping all movements");
+
+    // Set movement to DO_NOT_MOVE and reset velocities
+    movement = DO_NOT_MOVE;
+    x_vel = 0.0f;
+    y_vel = 0.0f;
+    goal_time = 0.0f;
+
+    bldc_set_duty(pwm_right_motor, 0.0f);
+    bldc_set_duty(pwm_left_motor, 0.0f);
+    bldc_set_duty(pwm_back_motor, 0.0f);
+
+
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_sendstr(req, "RESET OK");
+    return ESP_OK;
+}
+
 static esp_err_t cors_options_handler(httpd_req_t *req) {
 
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -664,6 +688,12 @@ httpd_handle_t start_http_server(void) {
             .handler = rotation_handler
         };
 
+        httpd_uri_t uri_reset = {
+            .uri = "/reset",
+            .method = HTTP_GET,
+            .handler = reset_handler
+        };
+
         httpd_uri_t cors_options = {
             .uri = "/",
             .method = HTTP_OPTIONS,
@@ -674,6 +704,7 @@ httpd_handle_t start_http_server(void) {
         httpd_register_uri_handler(server, &uri_line);
         httpd_register_uri_handler(server, &uri_circle);
         httpd_register_uri_handler(server, &uri_rotate);
+        httpd_register_uri_handler(server, &uri_reset);
 
         ESP_LOGI("HTTP", "HTTP Server started");
     }

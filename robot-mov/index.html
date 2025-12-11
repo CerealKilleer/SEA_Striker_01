@@ -36,6 +36,7 @@
   <h2>ESP32 IP Configuration</h2>
   <p>Set the IP address of your ESP32 device below:</p>
   <input id="esp32_ip" type="text" placeholder="ESP32 IP" value="http://192.168.88.193">
+  <button id="resetBtn" style="background: #f00; margin-left: 10px;">ABORT</button>
 
   <!-- Line Movement -->
   <form id="lineMovement">
@@ -133,6 +134,11 @@
         degrees: document.getElementById("degrees_r").value,
         velocity: document.getElementById("velocity_r").value
       });
+    };
+
+    // Handler: Reset Button
+    document.getElementById("resetBtn").onclick = function () {
+      sendCommand("reset", {});
     };
   </script>
 </body>

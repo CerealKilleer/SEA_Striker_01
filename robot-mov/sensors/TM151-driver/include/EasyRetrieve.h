@@ -39,8 +39,9 @@ void SerialPort_DataGet_RawAcc(uart_t* myUART);
  * @brief Called every time when new serial data is received
  * @param myUART: UART object
  * @param rawAcc: Pointer to store the raw acceleration data
+ * @param rawGyro: Pointer to store the raw gyroscope data (only heading angular velocity)
  */
-void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc);
+void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc, float* rawGyro);
 
 /**
  * @brief Called every time when new serial data is received for raw yaw

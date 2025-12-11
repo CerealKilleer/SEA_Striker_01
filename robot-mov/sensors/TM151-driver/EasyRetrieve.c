@@ -129,7 +129,7 @@ void SerialPort_DataGet_RawAcc(uart_t* myUART){
         // }
 }
 
-void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc) {
+void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc, float* gyro_z) {
     // This function is called when new serial data is received
     // You can process the received data here
     // For example, you can call SerialPort_DataGet() to handle the data
@@ -150,11 +150,15 @@ void SerialPort_DataReceived_RawAcc(uart_t* myUART, float* rawAcc) {
             rawAcc[0] = ep_Raw_GyroAccMag.acc[0];
             rawAcc[1] = ep_Raw_GyroAccMag.acc[1];
             rawAcc[2] = ep_Raw_GyroAccMag.acc[2];
+
+            // Copy the gyroscope data to the memory pointed to by rawGyro
+            *gyro_z = ep_Raw_GyroAccMag.gyro[2];
         }
     }
 
     // uart_clear(myUART); // Clear the UART buffer
 }
+
 
 void SerialPort_DataGet_RawYaw(uart_t* myUART){
     char* txData;

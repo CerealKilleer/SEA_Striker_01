@@ -11,7 +11,7 @@ file(GLOB SRCS_WIFI_LIB "../drivers/wifi_lib/*.c")
 
 if(ENCODER_CALIBRATION)
         idf_component_register(
-                SRCS "kalman_filter_1d.c" "encoder_calibration.c" ${SRCS_AS5600} ${SRCS_PLATFORM}
+                SRCS "test_IMU.c" "kalman_filter_1d.c" "encoder_calibration.c" ${SRCS_AS5600} ${SRCS_PLATFORM}
                 INCLUDE_DIRS "." "../sensors/AS5600_HAL_Library/include" "../platform/include"
         )
 elseif (ESCS_CALIBRATION)
@@ -28,6 +28,11 @@ elseif (TEST_WHEELS)
                     "../drivers/wifi_lib/include" "./include"
                 PRIV_REQUIRES esp_wifi nvs_flash driver esp_adc esp_timer
         )
+        )
+elseif (TEST_IMU)
+        idf_component_register(
+                SRCS "test_IMU.c" "kalman_filter_1d.c" ${SRCS_TM151} ${SRCS_PLATFORM}
+                INCLUDE_DIRS "." "../sensors/TM151-driver/include" "../platform/include" "./include"
         )
 else()
         idf_component_register(
