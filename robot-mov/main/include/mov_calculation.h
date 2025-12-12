@@ -40,7 +40,7 @@ void linear_movement(bool forward, float linear_velocity, float angle, float *x_
 void circular_movement(bool cw, float linear_velocity, float angle, float radius, float *x_velocity, float *y_velocity);
 
 /**
- * @brief Calculate the angular velocity of the wheels based on linear velocities.
+ * @brief Inverse Kinematics. Calculate the angular velocity of the wheels based on linear velocities.
  * @param x_velocity X component of the linear velocity in cm/s.
  * @param y_velocity Y component of the linear velocity in cm/s.
  * @param vel_selection Selection for which wheel's velocity to calculate (0: left, 1: back, 2: right).
@@ -48,6 +48,18 @@ void circular_movement(bool cw, float linear_velocity, float angle, float radius
  */
 void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
                              uint8_t vel_selection, float *wheel_velocity);
+
+/**
+ * @brief Forward Kinematics. Calculate the linear velocities based on the angular velocities of the wheels.
+ * @param wl_rad_s Angular velocity of the left wheel in rad/s.
+ * @param wb_rad_s Angular velocity of the back wheel in rad/s.
+ * @param wr_rad_s Angular velocity of the right wheel in rad/s.
+ * @param x_velocity Pointer to store the x component of the linear velocity in cm/s.
+ * @param y_velocity Pointer to store the y component of the linear velocity in cm/s.
+ * @param angular_velocity Pointer to store the angular velocity of the robot in rad/s.
+ */
+void cal_forward_kinematics(float wl_rad_s, float wb_rad_s, float wr_rad_s,
+                             float *x_velocity, float *y_velocity, float *angular_velocity);
 
 float rotate_on_axis(bool cw, float wb_rad_s, float angle_deg, enum movements_num *movements);
 #endif // MOV_CALCULATION_H

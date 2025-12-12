@@ -81,3 +81,15 @@ float rotate_on_axis(bool cw, float wb_rad_s, float angle_deg, enum movements_nu
         return 0.0f; // terminó el giro
     }
 }
+
+void cal_forward_kinematics(float wl_rad_s, float wb_rad_s, float wr_rad_s,
+                             float *x_velocity, float *y_velocity, float *angular_velocity)
+{
+    const float sin_d = sinf(DELTA);   // = 0.5
+    const float cos_d = cosf(DELTA);   // = 0.8660
+    const float scale = R / N;
+
+    *x_velocity = scale * ( sin_d* wl_rad_s- sin_d * wr_rad_s );
+    *y_velocity = scale * (  cos_d * wl_rad_s               + cos_d * wr_rad_s );
+    *angular_velocity         = scale * ( (1.0f / 3.0f) * ( wl_rad_s + wb_rad_s + wr_rad_s ) );
+}

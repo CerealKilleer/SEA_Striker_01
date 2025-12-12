@@ -94,20 +94,9 @@ pid_parameter_t pid_paramB = {
     .beta = 0.0f
 };
 
-pid_parameter_t pid_param_body = {
-    .kp = 0.5f,
-    .ki = 0.0f,
-    .kd = 0.0f,
-    .max_output = 40.0f, // Max linear velocity in cm/s
-    .min_output = -40.0f,
-    .set_point = 0.0f,
-    .cal_type = PID_CAL_TYPE_POSITIONAL,
-    .beta = 0.0f
-};
-
 kalman_filter_t km_right_wheel, km_left_wheel, km_back_wheel;
 enum movements_num movement; ///< Movement type
-float x_vel_desired = 0.0f, y_vel_desired = 0.0f; ///< Generalized velocities for the robot
+float x_vel = 0.0f, y_vel = 0.0f; ///< Generalized velocities for the robot
 float goal_time = 0.0f; ///< Goal time for linear movement in seconds
 
 /**
@@ -134,7 +123,6 @@ void vTaskEncodersGateKeeper(void *pvParameters) {
     }
 }
 
-//***************************************************************************************************** */
 // Task to read from encoder
 void vTaskEncoderRight(void * pvParameters) {
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
@@ -245,7 +233,6 @@ void vTaskEncoderBack(void * pvParameters) {
     ///<--------------------------------------------------
 }
 
-//***************************************************************************************************** */
 // Task to read from IMU
 void vTaskIMU(void * pvParameters) {
 
@@ -276,7 +263,6 @@ void vTaskIMU(void * pvParameters) {
     }
 }
 
-//***************************************************************************************************** */
 // Task to read from Lidar
 void vTaskLidar(void * pvParameters) {
     while (1) {
@@ -287,7 +273,7 @@ void vTaskLidar(void * pvParameters) {
     }
 }
 
-//***************************************************************************************************** */
+
 // Task to control the right wheel
 void vTaskControlRight( void * pvParameters ){
 
@@ -325,15 +311,15 @@ void vTaskControlRight( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_RIGHT, &setpoint);
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_RIGHT, &setpoint);
             break;
         case ROTATION:
             wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -356,12 +342,13 @@ void vTaskControlRight( void * pvParameters ){
          if (++ctr >= 150) {  // 2ms × 50 = 100ms
              // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
              ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-             ESP_LOGI(task_name, "x_vel_desired: %.2f\ty_vel_desired: %.2f", x_vel_desired, y_vel_desired); ///< Log the PID parameters
+             ESP_LOGI(task_name, "X_vel: %.2f\tY_vel: %.2f", x_vel, y_vel); ///< Log the PID parameters
              ctr = 0;
           }
     }
 }
 
+// Task to control the left wheel
 void vTaskControlLeft( void * pvParameters ){
 
     control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
@@ -398,15 +385,15 @@ void vTaskControlLeft( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
             wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -471,15 +458,15 @@ void vTaskControlBack( void * pvParameters ){
         switch (movement) ///< Check the movement type
         {
         case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            circular_movement(cw, velocity, degrees, radius, &x_vel, &y_vel); ///< Calculate the circular movement
+            cal_lin_to_ang_velocity(x_vel, y_vel, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case ROTATION:
             wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
+            cal_lin_to_ang_velocity(x_vel, y_vel, wb_rad_s, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
             break;
         case DO_NOT_MOVE:
             setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
@@ -497,7 +484,7 @@ void vTaskControlBack( void * pvParameters ){
          if (++ctr >= 150) {  // 2ms × 50 = 100ms
              // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
              ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-             ESP_LOGI(task_name, "x_vel_desired: %.2f\ty_vel_desired: %.2f", x_vel_desired, y_vel_desired); ///< Log the PID parameters
+             ESP_LOGI(task_name, "X_vel: %.2f\tY_vel: %.2f", x_vel, y_vel); ///< Log the PID parameters
              ctr = 0;
           }
         // Update PID Controller
@@ -510,32 +497,6 @@ void vTaskControlBack( void * pvParameters ){
 }
 
 
-//***************************************************************************************************** */
-void vTaskGlobalControl(void *pvParameters) {
-    // 1. Cast parameters
-    pid_block_handle_t pid_block = (pid_block_handle_t *)pvParameters; ///< PID control block handle
-    // 2. Task handler
-
-    while (1) {
-        // 3. Wait for notification from sensor fusion task
-        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
-        // aca debería incluir un mutex para leer el setpoint actual del robot (vel x y vely)
-
-
-        // 4. Calculate PID control for global velx, vely, and angular velocity
-        pid_compute(pid_block, x_vel_desired, &x_vel_output);
-        pid_compute(pid_block, y_vel_desired, &y_vel_output);
-        pid_compute(pid_block, angular_vel_desired, &angular_vel_output);
-
-        // 5. Calculate forward kinematics to get wheel velocities
-        cal_forward_kinematics();
-
-        // 6. Notify wheel control tasks to update their setpoints and actuate motors
-    }
-}
-
-
-//***************************************************************************************************** */
 void vTaskDistance(void *pvParameters){
     
     distance_params_t *params = (distance_params_t *)pvParameters; ///< Distance parameters structure
@@ -560,7 +521,7 @@ void vTaskDistance(void *pvParameters){
 
 }
 
-//************************* COMANDOS DE SERVIDOR **************************************************************************** */
+
 static bool get_param(httpd_req_t *req, const char *key, char *value, size_t max_len) {
     char query[200];
     if (httpd_req_get_url_query_len(req) >= sizeof(query)) return false;
@@ -599,7 +560,7 @@ esp_err_t line_handler(httpd_req_t *req) {
 
     movement = LINEAR;
     goal_time = time;
-    linear_movement(forward, velocity, degrees, &x_vel_desired, &y_vel_desired);
+    linear_movement(forward, velocity, degrees, &x_vel, &y_vel);
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
@@ -675,8 +636,8 @@ esp_err_t reset_handler(httpd_req_t *req) {
 
     // Set movement to DO_NOT_MOVE and reset velocities
     movement = DO_NOT_MOVE;
-    x_vel_desired = 0.0f;
-    y_vel_desired = 0.0f;
+    x_vel = 0.0f;
+    y_vel = 0.0f;
     goal_time = 0.0f;
 
 
