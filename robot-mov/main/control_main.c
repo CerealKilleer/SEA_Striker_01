@@ -6,21 +6,30 @@
 #include "kalman_filter_1d.h"
 #include "mov_calculation.h"
 
-float degrees;
-float velocity;
-float radius;
-bool cw;
-float wb;
+// ================== SHARED VARIABLES WITH MUTEXES ==================
 
-bool forward_mov[] = {true, true, true, false, false, false, false, true}; ///< Forward movements for the robot
-float linear_velocity[] = {15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f, 15.0f, 0.0f}; ///< Linear velocities for the robot in cm/s
-float angle[] = {0.0f, 0.0f, 90.0f, 0.0f, 0.0f, 0.0f, 90.0f, 0.0f}; ///< Angles for the robot in degrees
+// Current wheel velocities (updated by encoder tasks)
+wheel_velocities_t wheel_velocities = {0.0f, 0.0f, 0.0f};
+SemaphoreHandle_t wheel_velocities_mutex = NULL;
 
-float predef_move2[3][8] = { // {right, left, back} velocity in cm/s
-    {-15.0f, 0.0f, 15.0f, 0.0f, -15.0f, 0.0f, 15.0f, 0.0f}, ///< Predefined movements for the robots right wheel
-    {15.0f, 0.0f, 15.0f, 0.0f, -15.0f, 0.0f, -15.0f, 0.0f}, ///< Predefined movements for the robots left wheel
-    {0.0f, 0.0f, -15.0f, 0.0f, 15.0f, 0.0f, 0.0f, 0.0f} ///< Predefined movements for the robots back wheel
-};
+// Body measurements (updated by sensor fusion task)
+body_measurements_t body_measurements = {0.0f, 0.0f, 0.0f, 0.0f};
+SemaphoreHandle_t body_measurements_mutex = NULL;
+
+// Velocity setpoints from server
+velocity_setpoints_t velocity_setpoints = {0.0f, 0.0f, 0.0f};
+SemaphoreHandle_t velocity_setpoints_mutex = NULL;
+
+// Target velocities after global control
+velocity_targets_t velocity_targets = {0.0f, 0.0f, 0.0f};
+SemaphoreHandle_t velocity_targets_mutex = NULL;
+
+// Wheel target velocities (inverse kinematics output)
+wheel_targets_t wheel_targets = {0.0f, 0.0f, 0.0f};
+SemaphoreHandle_t wheel_targets_mutex = NULL;
+
+
+// ================== ENCODER DATA ==================
 
 imu_data_t imu_data = {
     .velocity = 0.0f,         ///< Velocity in cm/s
@@ -60,7 +69,7 @@ lidar_data_t lidar_data = {
     .prev_distance = 0,       ///< Previous distance in cm
     .start_distance = 0        ///< Start distance in cm
 };     ///< Lidar data structure
-
+// PID parameters for each wheel
 pid_parameter_t pid_paramR = {
     .kp = 0.02,
     .ki = 0.01,
@@ -94,24 +103,66 @@ pid_parameter_t pid_paramB = {
     .beta = 0.0f
 };
 
-pid_parameter_t pid_param_body = {
-    .kp = 0.5f,
+// Kalman filter instances for each wheel
+kalman_filter_t km_right_wheel, km_left_wheel, km_back_wheel;
+
+// PID parameters for global velocity control (high-level control)
+pid_parameter_t pid_xvel_param = {
+    .kp = 0.05f,
     .ki = 0.0f,
     .kd = 0.0f,
-    .max_output = 40.0f, // Max linear velocity in cm/s
-    .min_output = -40.0f,
+    .max_output = 20.0f,
+    .min_output = -20.0f,
     .set_point = 0.0f,
-    .cal_type = PID_CAL_TYPE_POSITIONAL,
+    .cal_type = PID_CAL_TYPE_INCREMENTAL,
     .beta = 0.0f
 };
 
-kalman_filter_t km_right_wheel, km_left_wheel, km_back_wheel;
-enum movements_num movement; ///< Movement type
-float x_vel_desired = 0.0f, y_vel_desired = 0.0f; ///< Generalized velocities for the robot
+pid_parameter_t pid_yvel_param = {
+    .kp = 0.05f,
+    .ki = 0.0f,
+    .kd = 0.0f,
+    .max_output = 20.0f,
+    .min_output = -20.0f,
+    .set_point = 0.0f,
+    .cal_type = PID_CAL_TYPE_INCREMENTAL,
+    .beta = 0.0f
+};
+
+pid_parameter_t pid_wb_param = {
+    .kp = 0.1f,
+    .ki = 0.00f,
+    .kd = 0.0f,
+    .max_output = 3.0f,
+    .min_output = -3.0f,
+    .set_point = 0.0f,
+    .cal_type = PID_CAL_TYPE_INCREMENTAL,
+    .beta = 0.0f
+};
+
+// body_measurements_t body_meas = {
+//     .v_x_measured = 0.0f,
+//     .v_y_measured = 0.0f,
+//     .v_wb_measured = 0.0f,
+//     .yaw = 0.0f
+// };
+// enum movements_num movement; ///< Movement type
+// float x_vel_desired = 0.0f, y_vel_desired = 0.0f; ///< Generalized velocities for the robot
 float goal_time = 0.0f; ///< Goal time for linear movement in seconds
 
+float degrees_circular;
+float velocity_circular;
+float radius_trayectory;
+
+float delta_time = 0.0f;
+bool cw;
+// float wb;
+
+enum movements_num movement; ///< Movement type
+// ================== INITIALIZATION FUNCTIONS ==================
+
 /**
- * @brief Inicializa por defecto las estructuras del filtro de kalman para las ruedas
+ * @brief Initialize Kalman filter parameters for all wheels
  */
 void init_kalman_parameters(void)
 {
@@ -120,431 +171,635 @@ void init_kalman_parameters(void)
     kalman_init(&km_back_wheel, 0.005f, 1.0f);
 }
 
+// ================== GATEKEEPER TASK ==================
+
 void vTaskEncodersGateKeeper(void *pvParameters) {
     struct enc_gk_params *params = (struct enc_gk_params *)pvParameters;
     union float_to_int32 angle;
+
     while(1) {
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+
+        // Read all encoders and notify respective tasks
         angle.f_value = AS5600_ADC_GetAngle(params->r_enc);
         xTaskNotify(*params->r_wheel, angle.int_value, eSetValueWithOverwrite);
+
         angle.f_value = AS5600_ADC_GetAngle(params->l_enc);
         xTaskNotify(*params->l_wheel, angle.int_value, eSetValueWithOverwrite);
+
         angle.f_value = AS5600_ADC_GetAngle(params->b_enc);
         xTaskNotify(*params->b_wheel, angle.int_value, eSetValueWithOverwrite);
     }
 }
 
-//***************************************************************************************************** */
-// Task to read from encoder
+// ================== ENCODER READING TASKS ==================
+
 void vTaskEncoderRight(void * pvParameters) {
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
     extern SemaphoreHandle_t right_params_mutex;
+    extern SemaphoreHandle_t wheel_velocities_mutex;
 
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
-    
     union float_to_int32 angle;
-    
-    ///<-------------- Get angle through ADC -------------
-    while (1) {
-        xTaskNotifyWait(0x00000000, 0x00000000, &angle.int_value, portMAX_DELAY);
-        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
-        encoder_data->angle = angle.f_value; ///< Get the angle from the ADC
-        static int ctr = 0;
-        estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
 
-        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+    while (1) {
+        // Wait for notification from gatekeeper
+        xTaskNotifyWait(0x00000000, 0x00000000, &angle.int_value, portMAX_DELAY);
+
+        // Update encoder data with mutex
+        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
+        encoder_data->angle = angle.f_value;
+        estimate_velocity_encoder(encoder_data);
         kalman_update(&km_right_wheel, encoder_data->velocity);
         encoder_data->last_vel = encoder_data->velocity;
-
+        float current_vel = encoder_data->velocity;
         xSemaphoreGive(right_params_mutex);
-        // // Log every 100ms because of the ESP_LOGI overhead
-        // static int counter = 0;
-        // if (++counter >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
-        //     counter = 0;
-        // }
+
+        // Update shared wheel velocities
+        xSemaphoreTake(wheel_velocities_mutex, portMAX_DELAY);
+        wheel_velocities.right_wheel_vel = current_vel;
+        xSemaphoreGive(wheel_velocities_mutex);
+
+        // Notify control task
         xTaskNotify(*params->control_task, 0x00, eNoAction);
     }
-    ///<--------------------------------------------------
 }
 
 void vTaskEncoderLeft(void * pvParameters) {
-
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
     extern SemaphoreHandle_t left_params_mutex;
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-    union float_to_int32 angle;
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
+    extern SemaphoreHandle_t wheel_velocities_mutex;
 
-    ///<-------------- Get angle through ADC -------------
+    union float_to_int32 angle;
+
     while (1) {
+        // Wait for notification from gatekeeper
         xTaskNotifyWait(0x00000000, 0x00000000, &angle.int_value, portMAX_DELAY);
+
+        // Update encoder data with mutex
         xSemaphoreTake(left_params_mutex, portMAX_DELAY);
-        encoder_data->angle = -angle.f_value; ///< Get the angle from the ADC
-        estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
-        
-        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+        encoder_data->angle = -angle.f_value;
+        estimate_velocity_encoder(encoder_data);
         kalman_update(&km_left_wheel, encoder_data->velocity);
         encoder_data->last_vel = encoder_data->velocity;
-
+        float current_vel = encoder_data->velocity;
         xSemaphoreGive(left_params_mutex);
-        // // Log every 100ms because of the ESP_LOGI overhead
-        // static int counter = 0;
-        // if (++counter >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
-        //     counter = 0;
-        // }
+
+        // Update shared wheel velocities
+        xSemaphoreTake(wheel_velocities_mutex, portMAX_DELAY);
+        wheel_velocities.left_wheel_vel = current_vel;
+        xSemaphoreGive(wheel_velocities_mutex);
+
+        // Notify control task
         xTaskNotify(*params->control_task, 0x00, eNoAction);
     }
-    ///<--------------------------------------------------
 }
 
 void vTaskEncoderBack(void * pvParameters) {
-
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
-    
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
     extern SemaphoreHandle_t back_params_mutex;
-    union float_to_int32 angle;
-    ///<-------------- Get angle through ADC -------------
-    while (1) {
-        xTaskNotifyWait(0x00000000, 0x00000000, &angle.int_value, portMAX_DELAY);
-        
-        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
-        
-        encoder_data->angle = angle.f_value; ///< Get the angle from the ADC
-        estimate_velocity_encoder(encoder_data); ///< Estimate the velocity using encoder data
+    extern SemaphoreHandle_t wheel_velocities_mutex;
 
-        //Se aplica el filtro de Kalman a la velocidad medida en los encoders
+    union float_to_int32 angle;
+
+    while (1) {
+        // Wait for notification from gatekeeper
+        xTaskNotifyWait(0x00000000, 0x00000000, &angle.int_value, portMAX_DELAY);
+
+        // Update encoder data with mutex
+        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
+        encoder_data->angle = angle.f_value;
+        estimate_velocity_encoder(encoder_data);
         kalman_update(&km_back_wheel, encoder_data->velocity);
         encoder_data->last_vel = encoder_data->velocity;
-
-
+        float current_vel = encoder_data->velocity;
         xSemaphoreGive(back_params_mutex);
-        // // Log every 100ms because of the ESP_LOGI overhead
-        // static int counter = 0;
-        // if (++counter >= 50) {  // 2ms × 50 = 100ms
-        //     ESP_LOGI(task_name, "Velocity: %.2f", encoder_data->velocity);
-        //     counter = 0;
-        // }
+
+        // Update shared wheel velocities
+        xSemaphoreTake(wheel_velocities_mutex, portMAX_DELAY);
+        wheel_velocities.back_wheel_vel = current_vel;
+        xSemaphoreGive(wheel_velocities_mutex);
+
+        // TODO: Revisar si es necesario notificar al control task, o mejor hacerlo desde el gatekeeper o de forma períodica
         xTaskNotify(*params->control_task, 0x00, eNoAction);
     }
-    ///<--------------------------------------------------
 }
 
-//***************************************************************************************************** */
-// Task to read from IMU
+// ================== IMU READING TASK ==================
+
 void vTaskIMU(void * pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    imu_data_t *imu_data = (imu_data_t *)params->imu_data;
+    uart_t *myUART = params->myUART;
+    extern SemaphoreHandle_t body_measurements_mutex;
 
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    imu_data_t *imu_data = (imu_data_t *)params->imu_data; ///< IMU data structure
-    uart_t *myUART = params->myUART; ///< UART object for TM151 IMU
-
-    // Get current task handle
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
     const char *task_name = pcTaskGetName(xTask);
 
-    float acceleration[3], yaw;
-    
+    float acceleration[3], gyro[3], yaw;
+
     while (1) {
-        // Read acceleration data from TM151 IMU
-        // SerialPort_DataReceived_RawAcc(myUART, acceleration); ///< Read acceleration data from TM151 IMU
-        // SerialPort_DataReceived_RawYaw(myUART, &yaw); ///< Read yaw data from TM151 IMU
-        
-        // Estimate the velocity using IMU data
-        // estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using IMU data
+        // Read acceleration and yaw data from TM151 IMU
+        SerialPort_DataReceived_RawAcc(myUART, acceleration, gyro);
+        SerialPort_DataReceived_RawYaw(myUART, &yaw);
 
-        // Log every 100ms because of the ESP_LOGI overhead
-        /*ESP_LOGI(task_name, "Acceleration: [\t%.2f,\t%.2f,\t%.2f]\t Yaw: %.2f", acceleration[0], acceleration[1], acceleration[2], yaw);*/
-        
-        vTaskDelay(300 / portTICK_PERIOD_MS); ///< Wait for 300ms
-    }
-}
+        // Estimate velocity using IMU data
+        estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f);
 
-//***************************************************************************************************** */
-// Task to read from Lidar
-void vTaskLidar(void * pvParameters) {
-    while (1) {
-        // // Read distance data from VL53L1X sensor
-        // float distance = VL53L1X_readDistance(&gVl53l1x, 0); ///< Get the distance from the VL53L1X sensor
-        // estimate_velocity_lidar(&lidar_data, distance, SAMPLE_TIME / 1000.0f); ///< Estimate the velocity using lidar data
-        vTaskDelay(SAMPLE_TIME / portTICK_PERIOD_MS); ///< Wait for 2 ms
-    }
-}
+        // Update body measurements with IMU data (yaw angle)
+        // TODO: Reivsar mutex, y tiempo maximo de espera
+        xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
+        body_measurements.yaw = yaw;
+        xSemaphoreGive(body_measurements_mutex);
 
-//***************************************************************************************************** */
-// Task to control the right wheel
-void vTaskControlRight( void * pvParameters ){
-
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
-
-    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
-
-    uint32_t timestamp = 1000000, counter = 0; // 1 second
-    bool move = true; ///< Flag to indicate if the robot should move
-
-    float est_velocity = 0.0f, last_est_velocity = 0.0f;
-    // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
-    float output = 0.0f;
-    float setpoint = 0.0f;
-    float wb_rad_s;
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
-    extern SemaphoreHandle_t right_params_mutex;
-
-    while (1)
-    {
-        ///<-------------- PID Control ---------------
-        // Low-pass filter
-        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
-        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
-        est_velocity = encoder_data->velocity;
-
-        last_est_velocity = est_velocity; ///< Update the last estimated velocity
-        xSemaphoreGive(right_params_mutex);
-        
-        switch (movement) ///< Check the movement type
-        {
-        case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_RIGHT, &setpoint);
-            break;
-        case ROTATION:
-            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_RIGHT, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case DO_NOT_MOVE:
-            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
-            break;
-            
-        default:
-            break;
-        }
-
-        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
-            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-        }
-
-        // Update PID Controller
-        pid_compute(pid_block, est_velocity, &output);
-        bldc_set_duty(params->pwm_motor, output);
-
-        // Log every 100ms because of the ESP_LOGI overhead
-         static int ctr = 0;
-         if (++ctr >= 150) {  // 2ms × 50 = 100ms
-             // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-             ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-             ESP_LOGI(task_name, "x_vel_desired: %.2f\ty_vel_desired: %.2f", x_vel_desired, y_vel_desired); ///< Log the PID parameters
-             ctr = 0;
-          }
-    }
-}
-
-void vTaskControlLeft( void * pvParameters ){
-
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
-
-    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
-
-    uint32_t timestamp = 1000000, counter = 0; // 1 second
-    bool move = true; ///< Flag to indicate if the robot should move
-
-    float est_velocity = 0.0f, last_est_velocity = 0.0f;
-    // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
-    float output = 0.0f;
-    float setpoint = 0.0f;
-    float wb_rad_s;
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
-    extern SemaphoreHandle_t left_params_mutex;
-
-    while (1)
-    {
-        ///<-------------- PID Control ---------------
-        // Low-pass filter
-        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
-        xSemaphoreTake(left_params_mutex, portMAX_DELAY);
-        est_velocity = encoder_data->velocity;
-
-        last_est_velocity = est_velocity; ///< Update the last estimated velocity
-        xSemaphoreGive(left_params_mutex);
-        
-        switch (movement) ///< Check the movement type
-        {
-        case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case ROTATION:
-            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_LEFT, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case DO_NOT_MOVE:
-            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
-            break;
-        
-        default:
-            break;
-        }
-
-        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
-            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-        }
-
-        // Update PID Controller
-        pid_compute(pid_block, est_velocity, &output);
-        bldc_set_duty(params->pwm_motor, output);
-        
-        // Log every 100ms because of the ESP_LOGI overhead
-        // static int ctr = 0;
-        // if (++ctr >= 150) {  // 2ms × 50 = 100ms
-        //     // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-        //     ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-        //     ctr = 0;
-        // }
-        
-    }
-}
-
-void vTaskControlBack( void * pvParameters ){
-
-    control_params_t *params = (control_params_t *)pvParameters; ///< Control parameters structure
-    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data; ///< Encoder data structure
-
-    pid_block_handle_t pid_block = *(params->pid_block); ///< PID control block handle
-
-    uint32_t timestamp = 1000000, counter = 0; // 1 second
-    bool move = true; ///< Flag to indicate if the robot should move
-
-    float est_velocity = 0.0f, last_est_velocity = 0.0f;
-    // float beta = exp(-2 * PI * 1 / 100);  // 10Hz cutoff frequency
-    float output = 0.0f;
-    float setpoint = 0.0f;
-    float wb_rad_s;
-    // Get current task handle
-    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
-
-    // Get task name
-    const char *task_name = pcTaskGetName(xTask);
-    extern SemaphoreHandle_t back_params_mutex;
-
-    while (1)
-    {
-        ///<-------------- PID Control ---------------
-        // Low-pass filter
-        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
-        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
-        est_velocity = encoder_data->velocity;
-
-        last_est_velocity = est_velocity; ///< Update the last estimated velocity
-        xSemaphoreGive(back_params_mutex);
-        
-        switch (movement) ///< Check the movement type
-        {
-        case LINEAR:
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case CIRCULAR:
-            circular_movement(cw, velocity, degrees, radius, &x_vel_desired, &y_vel_desired); ///< Calculate the circular movement
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, 0, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case ROTATION:
-            wb_rad_s = rotate_on_axis(cw, wb, degrees, &movement);
-            cal_lin_to_ang_velocity(x_vel_desired, y_vel_desired, wb_rad_s, SELECT_BACK, &setpoint); ///< Calculate the setpoint based on the predefined movements
-            break;
-        case DO_NOT_MOVE:
-            setpoint = 0.0f; ///< Set the setpoint to 0 for no movement
-            break;
-        
-        default:
-            break;
-        }
-
-        if (pid_update_set_point(pid_block, setpoint) != PID_OK) {
-            ESP_LOGE(task_name, "Failed to update PID parameters for %s", task_name);
-        }
-
+        // Log periodically (every 500ms)
         static int ctr = 0;
-         if (++ctr >= 150) {  // 2ms × 50 = 100ms
-             // ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f", est_velocity, output); ///< Log the PID parameters
-             ESP_LOGI(task_name, "Input: %.2f\tOutput: %.2f\tSetpoint: %.2f", est_velocity, output, setpoint); ///< Log the PID parameters
-             ESP_LOGI(task_name, "x_vel_desired: %.2f\ty_vel_desired: %.2f", x_vel_desired, y_vel_desired); ///< Log the PID parameters
-             ctr = 0;
-          }
-        // Update PID Controller
-        pid_compute(pid_block, est_velocity, &output);
-        bldc_set_duty(params->pwm_motor, output);
+        if (++ctr >= 250) {  // 2ms × 250 = 500ms
+            ESP_LOGI(task_name, "IMU Yaw: %.2f°", yaw);
+            ctr = 0;
+        }
 
-        
-        
+        // TODO: Revisar período de lectura del IMU
+        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
+// ================== SENSOR FUSION TASK ==================
 
-//***************************************************************************************************** */
-void vTaskGlobalControl(void *pvParameters) {
-    // 1. Cast parameters
-    pid_block_handle_t pid_block = (pid_block_handle_t *)pvParameters; ///< PID control block handle
-    // 2. Task handler
+void vTaskSensorFusion(void *pvParameters) {
+    extern SemaphoreHandle_t wheel_velocities_mutex;
+    extern SemaphoreHandle_t body_measurements_mutex;
+
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+
+    float right_vel, left_vel, back_vel;
+    float v_x_fk, v_y_fk, v_wb_fk;
 
     while (1) {
-        // 3. Wait for notification from sensor fusion task
+        // Wait for notification (triggered by timer every 10ms)
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
-        // aca debería incluir un mutex para leer el setpoint actual del robot (vel x y vely)
 
+        // 1. Read current wheel velocities
+        xSemaphoreTake(wheel_velocities_mutex, portMAX_DELAY);
+        right_vel = wheel_velocities.right_wheel_vel;
+        left_vel = wheel_velocities.left_wheel_vel;
+        back_vel = wheel_velocities.back_wheel_vel;
+        xSemaphoreGive(wheel_velocities_mutex);
 
-        // 4. Calculate PID control for global velx, vely, and angular velocity
-        pid_compute(pid_block, x_vel_desired, &x_vel_output);
-        pid_compute(pid_block, y_vel_desired, &y_vel_output);
-        pid_compute(pid_block, angular_vel_desired, &angular_vel_output);
+        // 2. Apply forward kinematics to get body velocities
+        cal_forward_kinematics(left_vel, back_vel, right_vel,
+                               &v_x_fk, &v_y_fk, &v_wb_fk);
 
-        // 5. Calculate forward kinematics to get wheel velocities
-        cal_forward_kinematics();
+        // 3. Fuse with IMU data (for now, just use forward kinematics)
+        // TODO: Implement sensor fusion algorithm (e.g., Kalman filter, complementary filter)
+        // For now, we primarily trust the encoders
 
-        // 6. Notify wheel control tasks to update their setpoints and actuate motors
+        // 4. Update body measurements
+        xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
+        body_measurements.v_x_measured = v_x_fk;
+        body_measurements.v_y_measured = v_y_fk;
+        //TODO: wb puede ser de la IMU
+        body_measurements.v_wb_measured = v_wb_fk;
+        // yaw is already updated by IMU task
+        xSemaphoreGive(body_measurements_mutex);
+
+        // Log periodically (every 500ms)
+        static int ctr = 0;
+        if (++ctr >= 50) {  // 10ms × 50 = 500ms
+            ESP_LOGI(task_name, "Body Vel -> X: %.2f cm/s, Y: %.2f cm/s, W: %.2f rad/s",
+                     v_x_fk, v_y_fk, v_wb_fk);
+            ctr = 0;
+        }
     }
 }
 
+// ================== GLOBAL CONTROL TASK ==================
 
-//***************************************************************************************************** */
-void vTaskDistance(void *pvParameters){
+void vTaskGlobalControl(void *pvParameters) {
+    global_control_params_t *params = (global_control_params_t *)pvParameters;
+
+    // PID controllers for global velocities
+    pid_block_handle_t pid_block_xvel = *(params->pid_block_xvel);
+    pid_block_handle_t pid_block_yvel = *(params->pid_block_yvel);
+    pid_block_handle_t pid_block_wb = *(params->pid_block_wb);
+
+    extern SemaphoreHandle_t body_measurements_mutex;
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+    extern SemaphoreHandle_t velocity_targets_mutex;
+    extern SemaphoreHandle_t wheel_targets_mutex;
+
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+
+    float v_x_measured, v_y_measured, v_wb_measured;
+    float v_x_setpoint=0.0f, v_y_setpoint=0.0f, v_wb_setpoint=0.0f;
+    float v_x_output, v_y_output, v_wb_output;
+    float right_target, left_target, back_target;
+
+    float current_time = 0.0f, previous_time = 0.0f;
+    movement = DO_NOT_MOVE;
     
-    distance_params_t *params = (distance_params_t *)pvParameters; ///< Distance parameters structure
-    encoder_data_t *encoder_data_right = params->encoder_data_right; ///< Encoder data structure for right wheel
-    encoder_data_t *encoder_data_left = params->encoder_data_left; ///< Encoder data structure for left wheel
-    encoder_data_t *encoder_data_back = params->encoder_data_back; ///< Encoder data structure for back wheel
-    float dx, dy, distance = 0, beta = 0.9; ///< Variables to store the distance
+    // Variables for PID reset and deadband
+    static enum movements_num prev_movement = DO_NOT_MOVE;
+    const float VELOCITY_DEADBAND = 0.5f;   // cm/s - ignore velocities below this
+    const float ANGULAR_DEADBAND = 0.1f;    // rad/s - ignore angular velocities below this
 
-    while(1){
+
+    while (1) {
+        // Wait for notification from timer (10ms period)
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        
+        // ========== FIX: Reset PIDs on movement state change ==========
+        if (movement != prev_movement) {
+            pid_reset_block(pid_block_xvel);
+            pid_reset_block(pid_block_yvel);
+            pid_reset_block(pid_block_wb);
+            ESP_LOGI(task_name, "Movement changed: %d -> %d, PIDs reset", prev_movement, movement);
+            prev_movement = movement;
+        }
+
+        // 1. Read velocity setpoints from server
+        // xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+        // v_x_setpoint = velocity_setpoints.v_x_setpoint;
+        // v_y_setpoint = velocity_setpoints.v_y_setpoint;
+        // v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
+        // xSemaphoreGive(velocity_setpoints_mutex);
+
+        // 2. Read measured body velocities
+        xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
+        v_x_measured = body_measurements.v_x_measured;
+        v_y_measured = body_measurements.v_y_measured;
+        v_wb_measured = body_measurements.v_wb_measured;
+        xSemaphoreGive(body_measurements_mutex);
+
+        switch (movement) {
+            case LINEAR:
+                // 1. Read velocity setpoints from server
+                xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+                v_x_setpoint = velocity_setpoints.v_x_setpoint;
+                v_y_setpoint = velocity_setpoints.v_y_setpoint;
+                v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
+                xSemaphoreGive(velocity_setpoints_mutex);
+                break; //it's updated later, no action needed now for linear
+            case CIRCULAR:
+            // 1. Read velocity setpoints from server AND UPDATE CIRCULAR MOVEMENT
+                //Actualizar tiempo
+                current_time = esp_timer_get_time() / 1000000.0f; // Convert microseconds to seconds
+                if (previous_time == 0.0f) {
+                    previous_time = current_time;
+                }else {
+                    delta_time = current_time - previous_time;
+                    previous_time = current_time;
+                }
+                xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+                circular_movement(cw, velocity_circular, degrees_circular, radius_trayectory,
+                    &velocity_setpoints.v_x_setpoint, &velocity_setpoints.v_y_setpoint,
+                    &delta_time, &movement);
+                v_x_setpoint = velocity_setpoints.v_x_setpoint;
+                v_y_setpoint = velocity_setpoints.v_y_setpoint;
+                v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
+                xSemaphoreGive(velocity_setpoints_mutex);
+
+                break;
+            case ROTATION:
+                //rotation_movement(cw, degrees_circular, wb, &v_wb_setpoint);
+                // 1. Read velocity setpoints from server
+                xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+                v_x_setpoint = velocity_setpoints.v_x_setpoint;
+                v_y_setpoint = velocity_setpoints.v_y_setpoint;
+                v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
+                xSemaphoreGive(velocity_setpoints_mutex);
+                break;
+            case DO_NOT_MOVE:
+                v_x_setpoint = 0.0f;
+                v_y_setpoint = 0.0f;
+                v_wb_setpoint = 0.0f;
+
+                                // ========== FIX: Apply deadband and reset PIDs when stopped ==========
+                if (fabs(v_x_measured) < VELOCITY_DEADBAND) {
+                    v_x_measured = 0.0f;
+                    pid_reset_block(pid_block_xvel);
+                }
+                if (fabs(v_y_measured) < VELOCITY_DEADBAND) {
+                    v_y_measured = 0.0f;
+                    pid_reset_block(pid_block_yvel);
+                }
+                if (fabs(v_wb_measured) < ANGULAR_DEADBAND) {
+                    v_wb_measured = 0.0f;
+                    pid_reset_block(pid_block_wb);
+                }
+                break;
+            default:
+                break;
+        }
+
+
+        // 3. Update PID setpoints
+        pid_update_set_point(pid_block_xvel, v_x_setpoint);
+        pid_update_set_point(pid_block_yvel, v_y_setpoint);
+        pid_update_set_point(pid_block_wb, v_wb_setpoint);
+
+        // 4. Compute PID outputs (target velocities after control)
+        // pid_compute(pid_block_xvel, v_x_measured, &v_x_output);
+        // pid_compute(pid_block_yvel, v_y_measured, &v_y_output);
+        // pid_compute(pid_block_wb, v_wb_measured, &v_wb_output);
+        // ========== TEMPORARY: Bypass PID control for testing ==========
+        v_x_output = v_x_setpoint;  // TEMPORARY: Bypass PID
+        v_y_output = v_y_setpoint;
+        v_wb_output = v_wb_setpoint;
+        // Recordar borrar lineas anteriores
+        
+        // 5. Store target velocities
+        xSemaphoreTake(velocity_targets_mutex, portMAX_DELAY);
+        velocity_targets.v_x_target = v_x_output;
+        velocity_targets.v_y_target = v_y_output;
+        velocity_targets.v_wb_target = v_wb_output;
+        xSemaphoreGive(velocity_targets_mutex);
+
+        // 6. Apply inverse kinematics to get wheel target velocities
+        cal_lin_to_ang_velocity(v_x_output, v_y_output, v_wb_output, SELECT_RIGHT, &right_target);
+        cal_lin_to_ang_velocity(v_x_output, v_y_output, v_wb_output, SELECT_LEFT, &left_target);
+        cal_lin_to_ang_velocity(v_x_output, v_y_output, v_wb_output, SELECT_BACK, &back_target);
+
+        // 7. Update wheel target velocities
+        xSemaphoreTake(wheel_targets_mutex, portMAX_DELAY);
+        wheel_targets.right_wheel_target = right_target;
+        wheel_targets.left_wheel_target = left_target;
+        wheel_targets.back_wheel_target = back_target;
+        xSemaphoreGive(wheel_targets_mutex);
+
+        // Log periodically (every 500ms)
+        static int ctr = 0;
+        if (++ctr >= 50) {  // 10ms × 50 = 500ms
+            ESP_LOGI(task_name, "Setpoints -> X: %.2f, Y: %.2f, W: %.2f",
+                     v_x_setpoint, v_y_setpoint, v_wb_setpoint);
+            ESP_LOGI(task_name, "Measured -> X: %.2f, Y: %.2f, W: %.2f",
+                     v_x_measured, v_y_measured, v_wb_measured);
+            ESP_LOGI(task_name, "Targets -> X: %.2f, Y: %.2f, W: %.2f",
+                     v_x_output, v_y_output, v_wb_output);
+            ESP_LOGI(task_name, "Wheel Targets -> R: %.2f, L: %.2f, B: %.2f",
+                     right_target, left_target, back_target);
+            ctr = 0;
+        }
+    }
+}
+// ================== UNIFIED WHEEL CONTROL TASK ==================
+
+/**
+ * @brief Unified control task for all three wheels
+ * 
+ * This task controls all three wheels simultaneously:
+ * - Reads all wheel target velocities at once (single mutex acquisition)
+ * - Computes PID for each wheel
+ * - Actuates all motors together
+ * 
+ * Advantages: Synchronized control, reduced mutex contention, lower overhead
+ * Disadvantages: Single point of failure, less modularity
+ */
+void vTaskAllWheelsControl(void *pvParameters) {
+    // Cast parameters - expects an array of 3 control_params_t
+    control_params_t *wheel_params = (control_params_t *)pvParameters;
+    
+    control_params_t *right_params = &wheel_params[0];
+    control_params_t *left_params = &wheel_params[1];
+    control_params_t *back_params = &wheel_params[2];
+    
+    encoder_data_t *right_encoder = (encoder_data_t *)right_params->sensor_data;
+    encoder_data_t *left_encoder = (encoder_data_t *)left_params->sensor_data;
+    encoder_data_t *back_encoder = (encoder_data_t *)back_params->sensor_data;
+    
+    pid_block_handle_t pid_right = *(right_params->pid_block);
+    pid_block_handle_t pid_left = *(left_params->pid_block);
+    pid_block_handle_t pid_back = *(back_params->pid_block);
+    
+    extern SemaphoreHandle_t right_params_mutex;
+    extern SemaphoreHandle_t left_params_mutex;
+    extern SemaphoreHandle_t back_params_mutex;
+    extern SemaphoreHandle_t wheel_targets_mutex;
+    
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+    
+    const TickType_t MUTEX_TIMEOUT = pdMS_TO_TICKS(3);
+    
+    float right_vel, left_vel, back_vel;
+    float right_target, left_target, back_target;
+    float right_output, left_output, back_output;
+    
+    while (1) {
+        // Wait for notification from any encoder task (triggered every 2ms)
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+        
+        // 1. Read all measured velocities with timeout
+        if (xSemaphoreTake(right_params_mutex, MUTEX_TIMEOUT) == pdTRUE) {
+            right_vel = right_encoder->velocity;
+            xSemaphoreGive(right_params_mutex);
+        } else {
+            ESP_LOGW(task_name, "Right encoder mutex timeout");
+            right_vel = 0.0f;
+        }
+        
+        if (xSemaphoreTake(left_params_mutex, MUTEX_TIMEOUT) == pdTRUE) {
+            left_vel = left_encoder->velocity;
+            xSemaphoreGive(left_params_mutex);
+        } else {
+            ESP_LOGW(task_name, "Left encoder mutex timeout");
+            left_vel = 0.0f;
+        }
+        
+        if (xSemaphoreTake(back_params_mutex, MUTEX_TIMEOUT) == pdTRUE) {
+            back_vel = back_encoder->velocity;
+            xSemaphoreGive(back_params_mutex);
+        } else {
+            ESP_LOGW(task_name, "Back encoder mutex timeout");
+            back_vel = 0.0f;
+        }
+        
+        // 2. Read all target velocities (single mutex acquisition)
+        if (xSemaphoreTake(wheel_targets_mutex, MUTEX_TIMEOUT) == pdTRUE) {
+            right_target = wheel_targets.right_wheel_target;
+            left_target = wheel_targets.left_wheel_target;
+            back_target = wheel_targets.back_wheel_target;
+            xSemaphoreGive(wheel_targets_mutex);
+        } else {
+            ESP_LOGW(task_name, "Wheel targets mutex timeout");
+            right_target = left_target = back_target = 0.0f;
+        }
+        
+        // 3. Compute PID for all wheels
+        pid_update_set_point(pid_right, right_target);
+        pid_compute(pid_right, right_vel, &right_output);
+        
+        pid_update_set_point(pid_left, left_target);
+        pid_compute(pid_left, left_vel, &left_output);
+        
+        pid_update_set_point(pid_back, back_target);
+        pid_compute(pid_back, back_vel, &back_output);
+        
+        // 4. Actuate all motors simultaneously
+        bldc_set_duty(right_params->pwm_motor, right_output);
+        bldc_set_duty(left_params->pwm_motor, left_output);
+        bldc_set_duty(back_params->pwm_motor, back_output);
+        
+        // Log periodically (every 500ms)
+        static int ctr = 0;
+        if (++ctr >= 250) {  // 2ms × 250 = 500ms
+            ESP_LOGI(task_name, "R: %.2f->%.2f [%.2f] | L: %.2f->%.2f [%.2f] | B: %.2f->%.2f [%.2f]",
+                     right_vel, right_target, right_output,
+                     left_vel, left_target, left_output,
+                     back_vel, back_target, back_output);
+            ctr = 0;
+        }
+    }
+}
+
+// ================== INDIVIDUAL WHEEL CONTROL TASKS ==================
+
+// ================== WHEEL CONTROL TASKS ==================
+
+void vTaskControlRight(void * pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
+    pid_block_handle_t pid_block = *(params->pid_block);
+
+    extern SemaphoreHandle_t right_params_mutex;
+    extern SemaphoreHandle_t wheel_targets_mutex;
+
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+
+    float measured_velocity, target_velocity, output;
+
+    while (1) {
+        // Wait for notification from encoder task (2ms period)
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+
+        // 1. Read measured velocity
+        xSemaphoreTake(right_params_mutex, portMAX_DELAY);
+        measured_velocity = encoder_data->velocity;
+        xSemaphoreGive(right_params_mutex);
+
+        // 2. Read target velocity
+        xSemaphoreTake(wheel_targets_mutex, portMAX_DELAY);
+        target_velocity = wheel_targets.right_wheel_target;
+        xSemaphoreGive(wheel_targets_mutex);
+
+        // 3. Update PID setpoint and compute output
+        pid_update_set_point(pid_block, target_velocity);
+        pid_compute(pid_block, measured_velocity, &output);
+
+        // 4. Actuate motor
+        bldc_set_duty(params->pwm_motor, output);
+
+        // Log periodically
+        static int ctr = 0;
+        if (++ctr >= 250) {  // 2ms × 250 = 500ms
+            ESP_LOGI(task_name, "Vel: %.2f | Target: %.2f | PWM: %.2f",
+                     measured_velocity, target_velocity, output);
+            ctr = 0;
+        }
+    }
+}
+
+void vTaskControlLeft(void * pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
+    pid_block_handle_t pid_block = *(params->pid_block);
+
+    extern SemaphoreHandle_t left_params_mutex;
+    extern SemaphoreHandle_t wheel_targets_mutex;
+
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+
+    float measured_velocity, target_velocity, output;
+
+    while (1) {
+        // Wait for notification from encoder task (2ms period)
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+
+        // 1. Read measured velocity
+        xSemaphoreTake(left_params_mutex, portMAX_DELAY);
+        measured_velocity = encoder_data->velocity;
+        xSemaphoreGive(left_params_mutex);
+
+        // 2. Read target velocity
+        xSemaphoreTake(wheel_targets_mutex, portMAX_DELAY);
+        target_velocity = wheel_targets.left_wheel_target;
+        xSemaphoreGive(wheel_targets_mutex);
+
+        // 3. Update PID setpoint and compute output
+        pid_update_set_point(pid_block, target_velocity);
+        pid_compute(pid_block, measured_velocity, &output);
+
+        // 4. Actuate motor
+        bldc_set_duty(params->pwm_motor, output);
+
+        // Log periodically
+        static int ctr = 0;
+        if (++ctr >= 250) {  // 2ms × 250 = 500ms
+            ESP_LOGI(task_name, "Vel: %.2f | Target: %.2f | PWM: %.2f",
+                     measured_velocity, target_velocity, output);
+            ctr = 0;
+        }
+    }
+}
+
+void vTaskControlBack(void * pvParameters) {
+    control_params_t *params = (control_params_t *)pvParameters;
+    encoder_data_t *encoder_data = (encoder_data_t *)params->sensor_data;
+    pid_block_handle_t pid_block = *(params->pid_block);
+
+    extern SemaphoreHandle_t back_params_mutex;
+    extern SemaphoreHandle_t wheel_targets_mutex;
+
+    TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
+    const char *task_name = pcTaskGetName(xTask);
+
+    float measured_velocity, target_velocity, output;
+
+    while (1) {
+        // Wait for notification from encoder task (2ms period)
+        xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
+
+        // 1. Read measured velocity
+        xSemaphoreTake(back_params_mutex, portMAX_DELAY);
+        measured_velocity = encoder_data->velocity;
+        xSemaphoreGive(back_params_mutex);
+
+        // 2. Read target velocity
+        xSemaphoreTake(wheel_targets_mutex, portMAX_DELAY);
+        target_velocity = wheel_targets.back_wheel_target;
+        xSemaphoreGive(wheel_targets_mutex);
+
+        // 3. Update PID setpoint and compute output
+        pid_update_set_point(pid_block, target_velocity);
+        pid_compute(pid_block, measured_velocity, &output);
+
+        // 4. Actuate motor
+        bldc_set_duty(params->pwm_motor, output);
+
+        // Log periodically
+        static int ctr = 0;
+        if (++ctr >= 250) {  // 2ms × 250 = 500ms
+            ESP_LOGI(task_name, "Vel: %.2f | Target: %.2f | PWM: %.2f",
+                     measured_velocity, target_velocity, output);
+            ctr = 0;
+        }
+    }
+}
+
+// ================== DISTANCE/TIMING TASK ==================
+
+void vTaskDistance(void *pvParameters) {
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+
+    while(1) {
+        // This task can monitor movement completion or timeouts
+        // For now, it just delays
         static uint16_t time_count = 0; ///< Counter to keep track of the number of iterations
 
         if(time_count >= goal_time * 1000 && movement == LINEAR) { ///< Check if the goal time has been reached
@@ -552,12 +807,10 @@ void vTaskDistance(void *pvParameters){
             time_count = 0; ///< Reset the time count
             goal_time = 0;
         } else if (movement != DO_NOT_MOVE) {
-            time_count += 5 * SAMPLE_TIME; ///< Increment the time count
+            time_count += 100; ///< Increment the time count by the task delay (100 ms)
         }
-
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-
 }
 
 //************************* COMANDOS DE SERVIDOR **************************************************************************** */
@@ -571,7 +824,6 @@ static bool get_param(httpd_req_t *req, const char *key, char *value, size_t max
     }
     return false;
 }
-
 
 esp_err_t line_handler(httpd_req_t *req) {
     char direction[16], degrees_s[16], velocity_s[16], time_s[16];
@@ -590,21 +842,27 @@ esp_err_t line_handler(httpd_req_t *req) {
 
     float degrees = atof(degrees_s);
     float velocity = atof(velocity_s);
-    float time = atof(time_s);
-
+    goal_time = atof(time_s);
     uint8_t forward = strcmp(direction, "Forward") == 0 ? 1 : 0;
 
     ESP_LOGI("HTTP", "LINE movement: dir=%s deg=%.2f vel=%.2f time=%.2f",
-             direction, degrees, velocity, time);
-
+             direction, degrees, velocity, goal_time);
+    // Calculate linear velocities
+    float x_vel, y_vel;
+    linear_movement(forward, velocity, degrees, &x_vel, &y_vel);
     movement = LINEAR;
-    goal_time = time;
-    linear_movement(forward, velocity, degrees, &x_vel_desired, &y_vel_desired);
+    // Update velocity setpoints
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+    xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+    velocity_setpoints.v_x_setpoint = x_vel;
+    velocity_setpoints.v_y_setpoint = y_vel;
+    velocity_setpoints.v_wb_setpoint = 0.0f;
+    xSemaphoreGive(velocity_setpoints_mutex);
+
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
-
 
 esp_err_t circular_handler(httpd_req_t *req) {
     char direction[16], degrees_s[16], velocity_s[16], radius_s[16];
@@ -621,22 +879,32 @@ esp_err_t circular_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    degrees = atof(degrees_s);
-    velocity = atof(velocity_s);
-    radius = atof(radius_s);
-    
-    ESP_LOGI("HTTP", "CIRCULAR: cw = %d dir=%s deg=%.2f vel=%.2f radius=%.2f",
-             cw, direction, degrees, velocity, radius);
-
-    movement = CIRCULAR;
+    degrees_circular = atof(degrees_s);
+    velocity_circular = atof(velocity_s);
+    radius_trayectory = atof(radius_s);
     cw = strcmp(direction, "cw") == 0 ? 1 : 0;
 
-    // circular_movement(...)
+    ESP_LOGI("HTTP", "CIRCULAR: cw = %d dir=%s deg=%.2f vel=%.2f radius=%.2f",
+             cw, direction, degrees_circular, velocity_circular, radius_trayectory);
+    // Calculate circular movement velocities
+    //TODO: Revisar movimiento circular. Debe actualizarse en contorl global.
+    float x_vel, y_vel;
+
+    movement = CIRCULAR;
+    circular_movement(cw, velocity_circular, degrees_circular, radius_trayectory, &x_vel, &y_vel,
+        &delta_time, &movement);
+    // Update velocity setpoints
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+    xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+    velocity_setpoints.v_x_setpoint = x_vel;
+    velocity_setpoints.v_y_setpoint = y_vel;
+    velocity_setpoints.v_wb_setpoint = 0.0f;  // Circular movement without rotation
+    xSemaphoreGive(velocity_setpoints_mutex);
+
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
 }
-
 
 esp_err_t rotation_handler(httpd_req_t *req) {
     char direction[16], degrees_s[16], velocity_s[16];
@@ -651,16 +919,28 @@ esp_err_t rotation_handler(httpd_req_t *req) {
         httpd_resp_sendstr(req, "Missing parameters");
         return ESP_FAIL;
     }
-
-    degrees = atof(degrees_s);
-    wb = atof(velocity_s);
+    //     degrees = atof(degrees_s);
+    // wb = atof(velocity_s);
     movement = ROTATION;
-    cw = strcmp(direction, "cw") == 0 ? 1 : 0;
+    // cw = strcmp(direction, "cw") == 0 ? 1 : 0;
 
-    ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
-             direction, degrees, velocity);
+    // ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f vel=%.2f",
+    //          direction, degrees, velocity);
+    degrees_circular = atof(degrees_s);
+    float wb = atof(velocity_s);
+    bool cw = strcmp(direction, "cw") == 0 ? 1 : 0;
+    // TODO: Revisar cambio de variable de velocity a wb
+    ESP_LOGI("HTTP", "ROTATION: dir=%s deg=%.2f wb=%.2f rad/s",
+             direction, degrees_circular, wb);
 
-    // rotate_robot(...)
+    // Update velocity setpoints for rotation
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+    xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+    velocity_setpoints.v_x_setpoint = 0.0f;
+    velocity_setpoints.v_y_setpoint = 0.0f;
+    velocity_setpoints.v_wb_setpoint = cw ? wb : -wb;
+    xSemaphoreGive(velocity_setpoints_mutex);
+
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "OK");
     return ESP_OK;
@@ -671,14 +951,17 @@ esp_err_t reset_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
 
-    ESP_LOGI("HTTP", "ABORT/RESET: Stopping all movements");
+    ESP_LOGI("HTTP", "RESET: Stopping all movements");
 
-    // Set movement to DO_NOT_MOVE and reset velocities
+    // Reset all velocity setpoints to zero
+    extern SemaphoreHandle_t velocity_setpoints_mutex;
+    xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
+    velocity_setpoints.v_x_setpoint = 0.0f;
+    velocity_setpoints.v_y_setpoint = 0.0f;
+    velocity_setpoints.v_wb_setpoint = 0.0f;
+    xSemaphoreGive(velocity_setpoints_mutex);
+
     movement = DO_NOT_MOVE;
-    x_vel_desired = 0.0f;
-    y_vel_desired = 0.0f;
-    goal_time = 0.0f;
-
 
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_sendstr(req, "RESET OK");
@@ -729,7 +1012,7 @@ httpd_handle_t start_http_server(void) {
         };
 
         httpd_uri_t cors_options = {
-            .uri = "/",
+            .uri = "/*",
             .method = HTTP_OPTIONS,
             .handler = cors_options_handler
         };

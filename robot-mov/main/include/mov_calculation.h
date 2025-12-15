@@ -36,8 +36,11 @@ void linear_movement(bool forward, float linear_velocity, float angle, float *x_
  * @param radius Radius of the circular path in cm.
  * @param x_velocity Pointer to store the x component of the velocity.
  * @param y_velocity Pointer to store the y component of the velocity.
+ * @param t Pointer to the current time variable for the movement.
+ * @param movements Pointer to the current movement state.
  */
-void circular_movement(bool cw, float linear_velocity, float angle, float radius, float *x_velocity, float *y_velocity);
+void circular_movement(bool cw, float linear_velocity, float angle, 
+    float radius, float *x_velocity, float *y_velocity,float *t, enum movements_num *movements);
 
 /**
  * @brief Inverse Kinematics. Calculate the angular velocity of the wheels based on linear velocities.

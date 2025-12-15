@@ -40,6 +40,7 @@ typedef struct {
     float beta;                    // PID beta filter coefficient of derivative term
 } pid_parameter_t;
 
+
 /**
  * @brief PID control configuration
  *

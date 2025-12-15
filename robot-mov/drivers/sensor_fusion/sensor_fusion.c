@@ -70,7 +70,7 @@ void estimate_velocity_encoder(encoder_data_t * encoder_data){
 
     if(fabsf(dist) < 1){ ///< If distance is between 0.1 cm and 1 cm update the velocity
         if(fabsf(dist) > 0.15) encoder_data->distance += fabsf(dist); ///< Store the distance
-        float vel =  (dist / encoder_data->radio) / encoder_data->time_interval, beta = 0.9f; ///< Calculate the velocity in cm/s
+        float vel = dist / encoder_data->time_interval, beta = 0.9f; ///< Calculate the velocity in cm/s
         encoder_data->velocity = beta * encoder_data->last_vel + (1 - beta) * vel; ///< Pass the velocity through a low-pass filter
         // printf("ENC Dist: %0.2f\tVelocity: %0.2f cm/s\n", dist, encoder_data->velocity); ///< Log message
 

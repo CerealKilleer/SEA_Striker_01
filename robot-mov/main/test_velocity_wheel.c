@@ -311,6 +311,10 @@ void vTaskEncoderRead(void *pvParameters) {
         
         // 1. READ ENCODER
         float angle = AS5600_ADC_GetAngle(params->encoder);
+        //Si el encoder es de la izquierda, invertir volver negativo
+        if(strstr(params->wheel_name, "LEFT") != NULL){
+            angle = -angle;
+        }
         params->encoder_data->angle = angle;
         
         // 2. CALCULATE VELOCITY
@@ -579,6 +583,9 @@ void app_main(void){
     //================ MAIN MONITORING LOOP ======================================
     uint32_t start_time = xTaskGetTickCount();
     float angle_prev = AS5600_ADC_GetAngle(selected_encoder);
+    if(strstr(encoder_params.wheel_name, "LEFT") != NULL){
+        angle_prev = -angle_prev; // Invert for left wheel
+    }
     
     while (1) {
         // Check if test is complete

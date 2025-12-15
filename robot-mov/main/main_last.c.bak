@@ -46,16 +46,14 @@
 #define MCPWM_GROUP_ID(group_id) (0)
 #define MAX_PWM_QUEUE 5
 
-#define UNIFIED_WHEEL_CONTROL_TASK 1
-
 uint32_t temp_ctr = 0; ///< Temporary counter to stop move_one_time
 QueueHandle_t rw_pwm_queue, lw_pwm_queue, bw_pwm_queue; ///< Queues for wheels pwm
 QueueHandle_t r_enc_queue, l_enc_queue, b_enc_queue; ///< Queues for encoders readings. Gatekeeper
 QueueHandle_t gk_notification;
 SemaphoreHandle_t right_params_mutex, left_params_mutex, back_params_mutex; ///< Queues for control params struct
 
-// SemaphoreHandle_t body_measurements_mutex; ///< Mutex for body measurements struct
-// SemaphoreHandle_t body_target_velocities_mutex; ///< Mutex for body target measurements
+SemaphoreHandle_t body_measurements_mutex; ///< Mutex for body measurements struct
+SemaphoreHandle_t body_target_velocities_mutex; ///< Mutex for body target measurements
 
 /**
  * @brief Initializes the PID controllers and links all control structures.
@@ -200,25 +198,7 @@ void app_main(void)
     left_params_mutex = xSemaphoreCreateMutex();
     back_params_mutex = xSemaphoreCreateMutex();
 
-    // Mutex for shared variables - declare as extern in control_main copy.c
-    extern SemaphoreHandle_t wheel_velocities_mutex;
-    extern SemaphoreHandle_t body_measurements_mutex;
-    extern SemaphoreHandle_t velocity_setpoints_mutex;
-    extern SemaphoreHandle_t velocity_targets_mutex;
-    extern SemaphoreHandle_t wheel_targets_mutex;
-    
-    // Create mutexes for shared variables
-    wheel_velocities_mutex = xSemaphoreCreateMutex();
-    body_measurements_mutex = xSemaphoreCreateMutex();
-    velocity_setpoints_mutex = xSemaphoreCreateMutex();
-    velocity_targets_mutex = xSemaphoreCreateMutex();
-    wheel_targets_mutex = xSemaphoreCreateMutex();
-    
-    if (!wheel_velocities_mutex || !body_measurements_mutex || 
-        !velocity_setpoints_mutex || !velocity_targets_mutex || !wheel_targets_mutex) {
-        ESP_LOGE("MUTEX", "Failed to create shared variable mutexes");
-        return;
-    }
+    body_measurements_mutex = xSemaphoreCreateMutex(); ///< Create mutex for body measurements struct
 
     ///<---------------- Initialize the Wifi ----------------
     
@@ -313,155 +293,107 @@ void app_main(void)
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); ///< Wait for 5 seconds to ensure all peripherals are initialized
 
-    // ================== CREATE TASKS ==================
-    
-    // Initialize Kalman filters
-    init_kalman_parameters();
-    
-    // Create gatekeeper task (Priority 21 - highest)
+    ///<-------------- Create the task ---------------
+    //Creating task for gatekeeper
     if (xTaskCreate(vTaskEncodersGateKeeper, "enc_gk", 2048, 
                     (void *)&gk_params, 21, &xEncodersGateKeeper) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create gatekeeper task");
-        return; 
+
+                   ESP_LOGE("Gatekeeper task create", "Failed to create");
+                   return; 
     }
-    
-    // Create encoder reading tasks (Priority 20)
+    //Creating tasks for encoders
     if (xTaskCreate(vTaskEncoderRight, "right_encoder_task", 4096, 
                     &right_control_params, 20, &xRightEncoderTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create right encoder task");
+        ESP_LOGE("ENCODER_TASK_R", "Failed to create task");
         return;
     }
     
     if (xTaskCreate(vTaskEncoderLeft, "left_encoder_task", 4096, 
                     &left_control_params, 20, &xLeftEncoderTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create left encoder task");
+        ESP_LOGE("ENCODER_TASK_L", "Failed to create task");
         return;
     }
     
     if (xTaskCreate(vTaskEncoderBack, "back_encoder_task", 4096, 
                     &back_control_params, 20, &xBackEncoderTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create back encoder task");
+        ESP_LOGE("ENCODER_TASK_B", "Failed to create");
         return;
     }
 
-    // Create wheel control tasks (Priority 19)
-    #ifdef UNIFIED_WHEEL_CONTROL_TASK
-    // ================== OPTION 1: Separate wheel control tasks (Priority 19) ==================
-        if (xTaskCreate(vTaskControlRight, "rwh_control_task", 4096, 
-                        &right_control_params, 19, &xRightControlTaskHandle) != pdPASS) {
-            ESP_LOGE("TASK_CREATE", "Failed to create right control task");
-            return;
-        }
-        
-        if (xTaskCreate(vTaskControlLeft, "lwh_control_task", 4096, 
-                        &left_control_params, 19, &xLeftControlTaskHandle) != pdPASS) {
-            ESP_LOGE("TASK_CREATE", "Failed to create left control task");
-            return;
-        }
-        
-        if (xTaskCreate(vTaskControlBack, "bwh_control_task", 4096, 
-                        &back_control_params, 19, &xBackControlTaskHandle) != pdPASS) {
-            ESP_LOGE("TASK_CREATE", "Failed to create back control task");
-            return;
-        }
-    #else
-    // ================== OPTION 2: Unified wheel control task (Priority 19) ==================
-        // Uncomment this section to use a single task for all wheels
-        // NOTE: Comment out OPTION 1 when using this option
-        
-        // Create array of control parameters for all three wheels
-        static control_params_t all_wheel_params[3];
-        all_wheel_params[0] = right_control_params;
-        all_wheel_params[1] = left_control_params;
-        all_wheel_params[2] = back_control_params;
-        
-        TaskHandle_t xAllWheelsControlTaskHandle = NULL;
-        if (xTaskCreate(vTaskAllWheelsControl, "all_wheels_control", 4096, 
-                        all_wheel_params, 19, &xAllWheelsControlTaskHandle) != pdPASS) {
-            ESP_LOGE("TASK_CREATE", "Failed to create unified wheel control task");
-            return;
-        }
-        
-        // Update encoder tasks to notify the unified control task
-        right_control_params.control_task = &xAllWheelsControlTaskHandle;
-        left_control_params.control_task = &xAllWheelsControlTaskHandle;
-        back_control_params.control_task = &xAllWheelsControlTaskHandle;
-    #endif
-
-    // Create IMU task (Priority 18)
-    TaskHandle_t xIMUTaskHandle = NULL;
-    if (xTaskCreate(vTaskIMU, "imu_task", 4096, &right_control_params, 18, &xIMUTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create IMU task");
+    //Creating task for control
+    if (xTaskCreate(vTaskControlRight, "rwh_control_task", 4096, 
+                    &right_control_params, 19, &xRightControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_R", "Failed to create");
+        return;
+    }
+    
+    if (xTaskCreate(vTaskControlLeft, "lwh_control_task", 4096, 
+                    &left_control_params, 19, &xLeftControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_L", "Failed to create task");
+        return;
+    }
+    
+    if (xTaskCreate(vTaskControlBack, "bwh_control_task", 4096, 
+                    &back_control_params, 19, &xBackControlTaskHandle) != pdPASS) {
+        ESP_LOGE("CTRL_TASK_B", "Failed to create");
         return;
     }
 
-    // Create Sensor Fusion task (Priority 17)
-    TaskHandle_t xSensorFusionTaskHandle = NULL;
-    if (xTaskCreate(vTaskSensorFusion, "sensor_fusion_task", 4096, 
-                    NULL, 17, &xSensorFusionTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create sensor fusion task");
-        return;
-    }
-
-    // Create Global Control task (Priority 16)
-    if (xTaskCreate(vTaskGlobalControl, "global_control_task", 4096, 
-                    (void *)&global_control_params, 16, &xGlobalControlTask) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create global control task");
-        return;
-    }
-
-    // Create Distance/Timing task (Priority 8)
     if (xTaskCreate(vTaskDistance, "distance_task", 4096, 
                     &distance_params, 8, &xDistanceTaskHandle) != pdPASS) {
-        ESP_LOGE("TASK_CREATE", "Failed to create distance task");
+        ESP_LOGE("DISTANCE_TASK", "Failed to create task");
         return;
     }
 
-    ESP_LOGI("TASKS", "All tasks created successfully");
-    ESP_LOGI("TASKS", "Right encoder GPIO: 0x%04X", gAs5600R.out);
-    ESP_LOGI("TASKS", "Left encoder GPIO: 0x%04X", gAs5600L.out);
-    ESP_LOGI("TASKS", "Back encoder GPIO: 0x%04X", gAs5600B.out);
-
-    // ================== CREATE TIMERS ==================
+    //Se inicializa el filtro de kalman para los encoders
+    init_kalman_parameters();
+    ESP_LOGI("TASKS", "Right encoder handle: 0x%04X", gAs5600R.out); ///< Log the task handles
+    ESP_LOGI("TASKS", "Left encoder handle: 0x%04X", gAs5600L.out); ///< Log the task handles
+    ESP_LOGI("TASKS", "Back encoder handle: 0x%04X", gAs5600B.out); ///< Log the task handles
     
-    // Timer for encoder gatekeeper (2ms period)
-    esp_timer_handle_t timer_encoder;
-    const esp_timer_create_args_t timer_encoder_args = {
+
+    //Se crea el timer de los 2ms
+    esp_timer_handle_t timer_handle;
+
+    const esp_timer_create_args_t timer_args = {
         .callback = timer_isr,
         .arg = (void *)&xEncodersGateKeeper,
         .dispatch_method = ESP_TIMER_ISR,
-        .name = "encoder_timer",
+        .name = "timer isr",
         .skip_unhandled_events = false
     };
-    esp_timer_create(&timer_encoder_args, &timer_encoder);
-    esp_timer_start_periodic(timer_encoder, 4000);  // 4ms
-    ESP_LOGI("TIMER", "Encoder timer started (4ms)");
+
+    esp_timer_create(&timer_args, &timer_handle);
+    esp_timer_start_periodic(timer_handle, 2000);
     
-    // Timer for sensor fusion task (10ms period)
-    esp_timer_handle_t timer_sensor_fusion;
-    const esp_timer_create_args_t timer_fusion_args = {
-        .callback = timer_isr,
-        .arg = (void *)&xSensorFusionTaskHandle,
-        .dispatch_method = ESP_TIMER_ISR,
-        .name = "fusion_timer",
-        .skip_unhandled_events = false
-    };
-    esp_timer_create(&timer_fusion_args, &timer_sensor_fusion);
-    esp_timer_start_periodic(timer_sensor_fusion, 10000);  // 10ms
-    ESP_LOGI("TIMER", "Sensor fusion timer started (10ms)");
-    
-    // Timer for global control task (10ms period)
-    esp_timer_handle_t timer_global_control;
-    const esp_timer_create_args_t timer_control_args = {
-        .callback = timer_isr,
-        .arg = (void *)&xGlobalControlTask,
-        .dispatch_method = ESP_TIMER_ISR,
-        .name = "control_timer",
-        .skip_unhandled_events = false
-    };
-    esp_timer_create(&timer_control_args, &timer_global_control);
-    esp_timer_start_periodic(timer_global_control, 5000);  // 5ms
-    ESP_LOGI("TIMER", "Global control timer started (10ms)");
+    TaskHandle_t xIMUTaskHandle = NULL, xLidarTaskHandle = NULL; ///< Task handles
+    xTaskCreate(vTaskIMU, "imu_task", 4096, &right_control_params, 8, &xIMUTaskHandle); ///< Create the task to read from IMU
+    configASSERT(xIMUTaskHandle); ///< Check if the task was created successfully
+    if (xIMUTaskHandle == NULL) {
+        ESP_LOGE("IMU_TASK", "Failed to create task...");
+        return;
+    }
+
+
+    // if (xTaskCreate(vTaskGlobalControl, "global_control_task", 4096, 
+    //                 (void *)&global_control_params, 18, &xGlobalControlTask) != pdPASS) {
+    //     ESP_LOGE("GLOBAL_CTRL_TASK", "Failed to create task");
+    //     return;
+    // }
+
+    // //Se crea el timer de los 10ms para el control global
+    // esp_timer_handle_t timer_handle_control;
+
+    // const esp_timer_create_args_t timer_args_control = {
+    //     .callback = timer_isr,
+    //     .arg = (void *)&xGlobalControlTask,
+    //     .dispatch_method = ESP_TIMER_ISR,
+    //     .name = "timer isr",
+    //     .skip_unhandled_events = false
+    // };
+
+    // esp_timer_create(&timer_args_control, & timer_handle_control);
+    // esp_timer_start_periodic(timer_handle_control, 10000);
  
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(1000));

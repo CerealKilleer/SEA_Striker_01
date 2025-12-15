@@ -27,4 +27,9 @@ config TEST_VEL_WHEEL
     default n
     help
         If y activate the test Vel in Wheels
+config TEST_FORWARD_KINEMATICS
+    bool "Activate the compile for test Forward Kinematics"
+    default n
+    help
+        If y activate the test Forward Kinematics
 endmenu

@@ -23,7 +23,7 @@
 #include "freertos/semphr.h"
 #include "driver/gptimer.h"
 #include "esp_http_server.h"
-#define SAMPLE_TIME 2 ///< Sample time in ms
+#define SAMPLE_TIME 4 ///< Sample time in ms
 #define WHEEL_RADIO 3.0f ///< Radio of the wheel in cm
 
 ///<-------------- AS5600 configuration --------------
@@ -95,6 +95,61 @@ typedef struct {
 } control_params_t; 
 
 typedef struct {
+    pid_block_handle_t * pid_block_xvel; ///< PID control block for x velocity
+    pid_block_handle_t * pid_block_yvel; ///< PID control block for y velocity
+    pid_block_handle_t * pid_block_wb;   ///< PID control block for angular velocity
+    encoder_data_t * encoder_data_right; ///< Encoder data structure for right wheel
+    encoder_data_t * encoder_data_left;  ///< Encoder data structure for left wheel
+    encoder_data_t * encoder_data_back;  ///< Encoder data structure for back wheel
+} global_control_params_t;
+
+/**
+ * @brief Struct to hold current wheel velocities (measured from encoders)
+ */
+typedef struct {
+    float right_wheel_vel;  ///< Right wheel velocity in cm/s
+    float left_wheel_vel;   ///< Left wheel velocity in cm/s
+    float back_wheel_vel;   ///< Back wheel velocity in cm/s
+} wheel_velocities_t;
+
+/**
+ * @brief Struct to hold body measurements (fused from encoders and IMU)
+ */
+typedef struct {
+    float v_x_measured;   ///< Measured x velocity in cm/s
+    float v_y_measured;   ///< Measured y velocity in cm/s
+    float v_wb_measured;  ///< Measured angular velocity in rad/s
+    float yaw;            ///< Yaw angle from IMU in degrees
+} body_measurements_t;
+
+/**
+ * @brief Struct to hold velocity setpoints from server/user
+ */
+typedef struct {
+    float v_x_setpoint;   ///< Desired x velocity in cm/s
+    float v_y_setpoint;   ///< Desired y velocity in cm/s
+    float v_wb_setpoint;  ///< Desired angular velocity in rad/s
+} velocity_setpoints_t;
+
+/**
+ * @brief Struct to hold target velocities after applying global control
+ */
+typedef struct {
+    float v_x_target;     ///< Target x velocity after control in cm/s
+    float v_y_target;     ///< Target y velocity after control in cm/s
+    float v_wb_target;    ///< Target angular velocity after control in rad/s
+} velocity_targets_t;
+
+/**
+ * @brief Struct to hold wheel target velocities (from inverse kinematics)
+ */
+typedef struct {
+    float right_wheel_target;  ///< Right wheel target velocity in cm/s
+    float left_wheel_target;   ///< Left wheel target velocity in cm/s
+    float back_wheel_target;   ///< Back wheel target velocity in cm/s
+} wheel_targets_t;
+
+typedef struct {
     float target_distance; ///< Distance measurement
     encoder_data_t * encoder_data_right; ///< Encoder data structure for right wheel
     encoder_data_t * encoder_data_left;  ///< Encoder data structure for left wheel
@@ -110,6 +165,7 @@ struct enc_gk_params {
     TaskHandle_t *r_wheel;
     TaskHandle_t *l_wheel;
     TaskHandle_t *b_wheel;
+    TaskHandle_t *global_control;
 
 };
 
@@ -159,7 +215,7 @@ void vTaskSetPWMBack(void *pvParameters);
 void vTaskIMU(void * pvParameters);
 
 /**
- * @brief Task to read from Lidar
+ * @brief Task to read from Lidar (Currently disabled)
  */
 void vTaskLidar(void * pvParameters);
 
@@ -190,6 +246,31 @@ void vTaskControlBack( void * pvParameters );
  * @param pvParameters
  */
 void vTaskDistance(void * pvParameters);
+
+/**
+ * @brief Sensor fusion task to combine data from encoders, IMU.
+ * Reads the velocities from each wheel and computes the robot's body velocities
+ * using forward kinematics.
+ * Reads the velocities x,y,w and yaw from IMU and fuses them with encoder data.
+ * 
+ * @param pvParameters 
+ */
+void vTaskSensorFusion(void * pvParameters);
+
+/**
+ * @brief Global control task to update the desired body velocities
+ * and compute wheel velocities using inverse kinematics
+ * 
+ * @param pvParameters 
+ */
+void vTaskGlobalControl(void * pvParameters);
+
+/**
+ * @brief Task to control all wheels given desired velocities
+ * 
+ * @param pvParameters 
+ */
+void vTaskAllWheeelControl(void * pvParameters);
 
 /**
  * @brief udp server task to handle incoming requests
