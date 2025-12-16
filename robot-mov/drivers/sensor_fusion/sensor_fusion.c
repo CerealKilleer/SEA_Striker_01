@@ -59,6 +59,36 @@ void estimate_velocity_imu(imu_data_t *imu_data, float acceleration, float time_
     imu_data->prev_acc = acceleration; ///< Update the previous acceleration value
 }
 
+void estimate_body_velocities_imu(imu_data_t *imu_data, float acc_x, float acc_y, float gyro_z, float yaw, float time_interval){
+    // Calculate body velocities in X and Y directions using acceleration
+    // Convert acceleration from m/s^2 to cm/s^2
+    float acc_x_cm = acc_x * 100.0f;
+    float acc_y_cm = acc_y * 100.0f;
+
+    //Volver a 0 si está en un rango bajo para no acumular error
+    
+    
+    // Calculate velocity change using trapezoidal integration
+    // delta_v = 0.5 * (a_prev + a_current) * dt
+    float delta_vx = 0.5f * (acc_x_cm) * time_interval;
+    float delta_vy = 0.5f * (acc_y_cm) * time_interval;
+    
+    // Apply low-pass filter to smooth velocities (beta = 0.9)
+    const float beta = 0.85f;
+    imu_data->vel_X = beta * imu_data->last_vel_X + (1.0f - beta) * delta_vx;
+    imu_data->vel_Y = beta * imu_data->last_vel_Y + (1.0f - beta) * delta_vy;
+    
+    // Store current velocities for next iteration
+    imu_data->last_vel_X = imu_data->vel_X;
+    imu_data->last_vel_Y = imu_data->vel_Y;
+    
+    // Store gyro Z for angular velocity calculation (already in deg/s)
+    //imu_data->gyro_z = gyro_z;
+    
+    // Store yaw for reference
+    imu_data->last_yaw = yaw;
+}
+
 void estimate_velocity_encoder(encoder_data_t * encoder_data){
     // Placeholder for velocity estimation logic
     // v(t) = (angle(t) - angle(t-1)) * radio / dt

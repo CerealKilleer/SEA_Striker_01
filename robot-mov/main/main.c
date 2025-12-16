@@ -98,6 +98,14 @@ static inline void init_pid_controllers(control_params_t *control_params, pid_pa
     control_params->control_task = control_task;
 }
 
+static inline void init_global_pid_controller(pid_parameter_t *pid_param, pid_block_handle_t *pid_block)
+{
+    pid_config_t pid_config = {
+        .init_param = *pid_param
+    };
+
+    pid_new_control_block(&pid_config, pid_block);
+}
 /**
  * @brief Initializes a single AS5600 magnetic encoder sensor.
  *
@@ -179,8 +187,10 @@ void app_main(void)
 
     static bldc_pwm_motor_t pwmR, pwmL, pwmB;   ///< BLDC motor object right, left and back
     static pid_block_handle_t pidR, pidL, pidB; ///< PID control block handle
+    static pid_block_handle_t pid_xvel, pid_yvel, pid_wb; ///< PID control block handle for global control
 
     extern pid_parameter_t pid_paramR, pid_paramL, pid_paramB; ///< PID parameters for right, left and back wheels
+    extern pid_parameter_t pid_xvel_param, pid_yvel_param, pid_wb_param; ///< PID parameters for x velocity, y velocity and angular velocity
     TaskHandle_t xRightEncoderTaskHandle, xLeftEncoderTaskHandle, xBackEncoderTaskHandle; ///< Task handles for encoders
     TaskHandle_t xRightControlTaskHandle, xLeftControlTaskHandle, xBackControlTaskHandle, xDistanceTaskHandle; ///< Task handles for control tasks
     TaskHandle_t xEncodersGateKeeper;
@@ -280,6 +290,16 @@ void app_main(void)
 
     pid_config.init_param = pid_paramB;
     pid_new_control_block(&pid_config, &pidB);
+
+    pid_config.init_param = pid_xvel_param;
+    pid_new_control_block(&pid_config, &pid_xvel);
+
+    pid_config.init_param = pid_yvel_param;
+    pid_new_control_block(&pid_config, &pid_yvel);
+
+    pid_config.init_param = pid_wb_param;
+    pid_new_control_block(&pid_config, &pid_wb);
+
     ///<---------------------------------------------------
 
 
@@ -294,7 +314,11 @@ void app_main(void)
     init_pid_controllers(&back_control_params, &pid_paramB, &gAs5600B, 
                          &back_encoder_data, &pidB, &pwmB, 
                          &myUART, &imu_data, 2, 1, &xBackControlTaskHandle);
-
+    
+    init_global_pid_controller(&pid_xvel_param, &pid_xvel);
+    init_global_pid_controller(&pid_yvel_param, &pid_yvel);
+    init_global_pid_controller(&pid_wb_param, &pid_wb);
+    ///<---------------------------------------------------
     static distance_params_t distance_params = {
         .target_distance = 5.0f, ///< Set the target distance to 100 cm
         .encoder_data_right = &right_encoder_data,
@@ -303,9 +327,9 @@ void app_main(void)
     };
 
     global_control_params_t global_control_params = {
-        .pid_block_xvel = &pidR,
-        .pid_block_yvel = &pidL,
-        .pid_block_wb = &pidB,
+        .pid_block_xvel = &pid_xvel,
+        .pid_block_yvel = &pid_yvel,
+        .pid_block_wb = &pid_wb,
         .encoder_data_right = &right_encoder_data,
         .encoder_data_left = &left_encoder_data,
         .encoder_data_back = &back_encoder_data
@@ -424,7 +448,7 @@ void app_main(void)
 
     // ================== CREATE TIMERS ==================
     
-    // Timer for encoder gatekeeper (2ms period)
+    // Timer for encoder gatekeeper (4ms period)
     esp_timer_handle_t timer_encoder;
     const esp_timer_create_args_t timer_encoder_args = {
         .callback = timer_isr,

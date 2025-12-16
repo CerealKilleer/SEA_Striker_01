@@ -33,7 +33,7 @@
 #include "kalman_filter_1d.h"
 #include "pid_ext.h"
 
-#define SAMPLE_TIME 5 ///< Sample time in ms (5ms as requested)
+#define SAMPLE_TIME 4 ///< Sample time in ms (4ms as requested)
 #define WHEEL_RADIO 3.0f ///< Radio of the wheel in cm
 #define WHEEL_CIRCUMFERENCE (2.0f * 3.14159f * WHEEL_RADIO) ///< Circumference in cm
 
@@ -458,10 +458,10 @@ void app_main(void){
     bldc_pwm_motor_t *selected_motor;
     const char *wheel_name;
     
-    // Update time interval to 8ms
-    right_encoder_data.time_interval = 8.0f / 1000.0f;
-    left_encoder_data.time_interval = 8.0f / 1000.0f;
-    back_encoder_data.time_interval = 8.0f / 1000.0f;
+    // Update time interval to match sample time
+    right_encoder_data.time_interval = 5.0f / 1000.0f;
+    left_encoder_data.time_interval = 5.0f / 1000.0f;
+    back_encoder_data.time_interval = 5.0f / 1000.0f;
     
     switch (test_config.selected_wheel) {
         case WHEEL_RIGHT:
@@ -532,7 +532,7 @@ void app_main(void){
     ESP_LOGI(TAG, "  Expected distance: %.2f cm", expected_distance);
     ESP_LOGI(TAG, "  Expected rotations: %.2f turns", expected_rotations);
     ESP_LOGI(TAG, "  PID: Kp=%.4f Ki=%.4f Kd=%.4f", test_config.kp, test_config.ki, test_config.kd);
-    ESP_LOGI(TAG, "  Sample time: 8ms");
+    ESP_LOGI(TAG, "  Sample time: %d ms", SAMPLE_TIME);
     ESP_LOGI(TAG, "===========================================================");
 
     //================ CREATE TASKS ==============================================
@@ -638,10 +638,10 @@ void app_main(void){
         }
         
         // Log every 500ms
-        if (elapsed_ms % 500 == 0) {
-            ESP_LOGI(TAG, "T:%.1fs | Dist:%.1fcm | Rot:%.2f", 
-                     elapsed_ms/1000.0f, total_distance, total_rotations);
-        }
+        // if (elapsed_ms % 500 == 0) {
+        //     ESP_LOGI(TAG, "T:%.1fs | Dist:%.1fcm | Rot:%.2f", 
+        //              elapsed_ms/1000.0f, total_distance, total_rotations);
+        // }
         
         vTaskDelay(pdMS_TO_TICKS(50));
     }

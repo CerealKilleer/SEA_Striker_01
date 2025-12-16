@@ -25,6 +25,12 @@
 typedef struct
 {
     float velocity; /**< Velocity in cm/s */
+    float vel_X;    /**< Velocity in X direction cm/s */
+    float vel_Y;    /**< Velocity in Y direction cm/s */
+    float last_vel_X;    /**< Last velocity in X direction cm/s */
+    float last_vel_Y;    /**< Last velocity in Y direction cm/s */
+    float last_yaw;    /**< Last yaw angle in degrees */
+    float gyro_z;   /**< Gyro Z axis in degrees/s */
     float prev_acc; /**< Previous acceleration values */
 
     float window[WIN_SIZE]; /**< Window for sampling */
@@ -70,6 +76,17 @@ void sf_init(imu_data_t *imu_data, encoder_data_t *encoder_data, lidar_data_t *l
  * @param time_interval Time interval between measurements (s)
  */
 void estimate_velocity_imu(imu_data_t *imu_data, float acceleration, float time_interval);
+
+/**
+ * @brief Estimate body velocities in X and Y directions using IMU data
+ * @param imu_data Pointer to the IMU data structure
+ * @param acc_x Acceleration in X direction (m/s^2)
+ * @param acc_y Acceleration in Y direction (m/s^2)
+ * @param gyro_z Angular velocity around Z axis (deg/s)
+ * @param yaw Current yaw angle (degrees)
+ * @param time_interval Time interval between measurements (s)
+ */
+void estimate_body_velocities_imu(imu_data_t *imu_data, float acc_x, float acc_y, float gyro_z, float yaw, float time_interval);
 
 /**
  * @brief Estimate the velocity using Encoder data

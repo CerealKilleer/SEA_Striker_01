@@ -34,6 +34,12 @@ SemaphoreHandle_t wheel_targets_mutex = NULL;
 imu_data_t imu_data = {
     .velocity = 0.0f,         ///< Velocity in cm/s
     .prev_acc = 0.0f,         ///< Previous acceleration values
+    .vel_X = 0.0f,            ///< Velocity in X direction cm/s
+    .vel_Y = 0.0f,            ///< Velocity in Y direction cm/s
+    .last_vel_X = 0.0f,       ///< Last velocity in X direction cm/s
+    .last_vel_Y = 0.0f,       ///< Last velocity in Y direction cm/s
+    .last_yaw = 0.0f,         ///< Last yaw angle in degrees
+    .gyro_z = 0.0f,           ///< Gyro Z axis in degrees/s
     .window = {}          ///< Window for sampling
 };         ///< IMU data structure
 
@@ -106,37 +112,39 @@ pid_parameter_t pid_paramB = {
 // Kalman filter instances for each wheel
 kalman_filter_t km_right_wheel, km_left_wheel, km_back_wheel;
 
+kalman_filter_t km_vx_imu, km_vy_imu, km_wb_imu;
+
 // PID parameters for global velocity control (high-level control)
 pid_parameter_t pid_xvel_param = {
-    .kp = 0.05f,
+    .kp = 1.0f,
     .ki = 0.0f,
     .kd = 0.0f,
     .max_output = 20.0f,
     .min_output = -20.0f,
     .set_point = 0.0f,
-    .cal_type = PID_CAL_TYPE_INCREMENTAL,
+    .cal_type = PID_CAL_TYPE_POSITIONAL,
     .beta = 0.0f
 };
 
 pid_parameter_t pid_yvel_param = {
-    .kp = 0.05f,
+    .kp = 1.0f,
     .ki = 0.0f,
     .kd = 0.0f,
     .max_output = 20.0f,
     .min_output = -20.0f,
     .set_point = 0.0f,
-    .cal_type = PID_CAL_TYPE_INCREMENTAL,
+    .cal_type = PID_CAL_TYPE_POSITIONAL,
     .beta = 0.0f
 };
 
 pid_parameter_t pid_wb_param = {
-    .kp = 0.1f,
+    .kp = 0.05f,
     .ki = 0.00f,
     .kd = 0.0f,
     .max_output = 3.0f,
     .min_output = -3.0f,
     .set_point = 0.0f,
-    .cal_type = PID_CAL_TYPE_INCREMENTAL,
+    .cal_type = PID_CAL_TYPE_POSITIONAL,
     .beta = 0.0f
 };
 
@@ -155,6 +163,7 @@ float velocity_circular;
 float radius_trayectory;
 
 float delta_time = 0.0f;
+float current_time = 0.0f, previous_time = 0.0f;
 bool cw;
 // float wb;
 
@@ -169,6 +178,10 @@ void init_kalman_parameters(void)
     kalman_init(&km_right_wheel, 0.005f, 1.0f);
     kalman_init(&km_left_wheel, 0.005f, 1.0f);
     kalman_init(&km_back_wheel, 0.005f, 1.0f);
+
+    kalman_init(&km_vx_imu, 0.01f, 1.0f);
+    kalman_init(&km_vy_imu, 0.01f, 1.0f);
+    kalman_init(&km_wb_imu, 0.01f, 1.0f);
 }
 
 // ================== GATEKEEPER TASK ==================
@@ -299,17 +312,32 @@ void vTaskIMU(void * pvParameters) {
     const char *task_name = pcTaskGetName(xTask);
 
     float acceleration[3], gyro[3], yaw;
+    const float time_interval = 10.0f / 1000.0f; // 10ms period in seconds
 
     while (1) {
         // Read acceleration and yaw data from TM151 IMU
         SerialPort_DataReceived_RawAcc(myUART, acceleration, gyro);
         SerialPort_DataReceived_RawYaw(myUART, &yaw);
 
-        // Estimate velocity using IMU data
-        estimate_velocity_imu(imu_data, acceleration[0], SAMPLE_TIME / 1000.0f);
+        // Calculate body velocities in X and Y, and store gyro_z
+        estimate_body_velocities_imu(imu_data, acceleration[0], acceleration[1], gyro[2], yaw, time_interval);
 
-        // Update body measurements with IMU data (yaw angle)
-        // TODO: Reivsar mutex, y tiempo maximo de espera
+        // Apply Kalman filter to angular velocity (in rad/s)
+        float wb_rad_s_raw = gyro[2] * PI / 180.0f;
+        kalman_update(&km_wb_imu, wb_rad_s_raw);
+        float wb_rad_s_filtered = km_wb_imu.x;
+        
+        // Convert filtered wb back to deg/s and store in imu_data
+        imu_data->gyro_z = wb_rad_s_filtered * 180.0f / PI;  // Store filtered gyro in deg/s
+
+
+        //apply kalman filter to imu vx and vy
+        kalman_update(&km_vx_imu, imu_data->vel_X);
+        kalman_update(&km_vy_imu, imu_data->vel_Y);
+        imu_data->vel_X = km_vx_imu.x;
+        imu_data->vel_Y = km_vy_imu.x;
+
+        // Update body measurements with IMU data
         xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
         body_measurements.yaw = yaw;
         xSemaphoreGive(body_measurements_mutex);
@@ -317,12 +345,13 @@ void vTaskIMU(void * pvParameters) {
         // Log periodically (every 500ms)
         static int ctr = 0;
         if (++ctr >= 250) {  // 2ms × 250 = 500ms
-            ESP_LOGI(task_name, "IMU Yaw: %.2f°", yaw);
+            ESP_LOGI(task_name, "IMU Yaw: %.2f° | Gyro_Z: %.2f deg/s | wb: %.2f rad/s", yaw, imu_data->gyro_z, wb_rad_s_filtered);
+            ESP_LOGI(task_name, "IMU Vel_X: %.2f cm/s | Vel_Y: %.2f cm/s", imu_data->vel_X, imu_data->vel_Y);
             ctr = 0;
         }
 
         // TODO: Revisar período de lectura del IMU
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(10)); // Delay for 10ms
     }
 }
 
@@ -338,8 +367,10 @@ void vTaskSensorFusion(void *pvParameters) {
     float right_vel, left_vel, back_vel;
     float v_x_fk, v_y_fk, v_wb_fk;
 
+    float imu_vx, imu_vy, imu_wb;
+
     while (1) {
-        // Wait for notification (triggered by timer every 10ms)
+        // Wait for notification (triggered by timer interrupt every 10ms)
         xTaskNotifyWait(0xFFFFFFFF, 0xFFFFFFFF, NULL, portMAX_DELAY);
 
         // 1. Read current wheel velocities
@@ -355,16 +386,21 @@ void vTaskSensorFusion(void *pvParameters) {
 
         // 3. Fuse with IMU data (for now, just use forward kinematics)
         // TODO: Implement sensor fusion algorithm (e.g., Kalman filter, complementary filter)
+        imu_wb = imu_data.gyro_z * PI / 180.0f;
+        imu_vx = imu_data.vel_X;
+        imu_vy = imu_data.vel_Y;
         // For now, we primarily trust the encoders
 
-        // 4. Update body measurements
+        // 4. Update body measurements. TODO: Implementar mezcla con IMU
         xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
         body_measurements.v_x_measured = v_x_fk;
         body_measurements.v_y_measured = v_y_fk;
         //TODO: wb puede ser de la IMU
-        body_measurements.v_wb_measured = v_wb_fk;
+        body_measurements.v_wb_measured = -imu_wb; //Trust the IMU for angular velocity
         // yaw is already updated by IMU task
         xSemaphoreGive(body_measurements_mutex);
+
+        // 6. TODO: In the future it might be possible to implement a kalman filter here to fuse the data
 
         // Log periodically (every 500ms)
         static int ctr = 0;
@@ -399,7 +435,7 @@ void vTaskGlobalControl(void *pvParameters) {
     float v_x_output, v_y_output, v_wb_output;
     float right_target, left_target, back_target;
 
-    float current_time = 0.0f, previous_time = 0.0f;
+    
     movement = DO_NOT_MOVE;
     
     // Variables for PID reset and deadband
@@ -503,15 +539,15 @@ void vTaskGlobalControl(void *pvParameters) {
         pid_update_set_point(pid_block_wb, v_wb_setpoint);
 
         // 4. Compute PID outputs (target velocities after control)
-        // pid_compute(pid_block_xvel, v_x_measured, &v_x_output);
-        // pid_compute(pid_block_yvel, v_y_measured, &v_y_output);
-        // pid_compute(pid_block_wb, v_wb_measured, &v_wb_output);
+        pid_compute(pid_block_xvel, v_x_measured, &v_x_output);
+        pid_compute(pid_block_yvel, v_y_measured, &v_y_output);
+        pid_compute(pid_block_wb, v_wb_measured, &v_wb_output);
         // ========== TEMPORARY: Bypass PID control for testing ==========
-        v_x_output = v_x_setpoint;  // TEMPORARY: Bypass PID
-        v_y_output = v_y_setpoint;
-        v_wb_output = v_wb_setpoint;
+        // v_x_output = v_x_setpoint;  // TEMPORARY: Bypass PID
+        // v_y_output = v_y_setpoint;
+        // v_wb_output = v_wb_setpoint;
         // Recordar borrar lineas anteriores
-        
+
         // 5. Store target velocities
         xSemaphoreTake(velocity_targets_mutex, portMAX_DELAY);
         velocity_targets.v_x_target = v_x_output;
@@ -524,7 +560,7 @@ void vTaskGlobalControl(void *pvParameters) {
         cal_lin_to_ang_velocity(v_x_output, v_y_output, v_wb_output, SELECT_LEFT, &left_target);
         cal_lin_to_ang_velocity(v_x_output, v_y_output, v_wb_output, SELECT_BACK, &back_target);
 
-        // 7. Update wheel target velocities
+        // 7. Update wheel target velocities for each wheel
         xSemaphoreTake(wheel_targets_mutex, portMAX_DELAY);
         wheel_targets.right_wheel_target = right_target;
         wheel_targets.left_wheel_target = left_target;
@@ -889,7 +925,9 @@ esp_err_t circular_handler(httpd_req_t *req) {
     // Calculate circular movement velocities
     //TODO: Revisar movimiento circular. Debe actualizarse en contorl global.
     float x_vel, y_vel;
-
+    
+    previous_time = 0.0f; // Reset previous time for circular movement
+    delta_time = 0.0f;
     movement = CIRCULAR;
     circular_movement(cw, velocity_circular, degrees_circular, radius_trayectory, &x_vel, &y_vel,
         &delta_time, &movement);
