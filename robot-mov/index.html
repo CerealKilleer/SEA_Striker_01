@@ -71,7 +71,8 @@
       <option value="cw">Clock Wise</option>
       <option value="ccw">Counter Clock Wise</option>
     </select>
-    <input required id="velocity_r" type="number" placeholder="Velocity of rotation (°/s)">
+    <input required id="duration_r" type="number" step="0.1" placeholder="Duration (seconds)">
+    <input required id="velocity_r" type="number" step="0.1" placeholder="Angular velocity (rad/s)">
     <button type="submit">Send</button>
   </form>
 
@@ -131,7 +132,7 @@
       e.preventDefault();
       sendCommand("selfRotation", {
         direction: document.getElementById("orientation_r").value,
-        degrees: document.getElementById("degrees_r").value,
+        duration: document.getElementById("duration_r").value,
         velocity: document.getElementById("velocity_r").value
       });
     };

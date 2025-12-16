@@ -10,6 +10,7 @@
 #define DELTA PI/6.0  ///< Angle in degrees for the transformation (orientation angle of the body)
 #define N     16      ///< Reduction factor for the transformation (planetary gear ratio)
 #define R     3.25f   ///< Radius of the wheel in cm
+#define ROBOT_RADIUS 8.0f  ///< Distance from robot center to each wheel in cm
 
 enum movements_num {
     LINEAR = 0,   ///< Linear movement
@@ -64,5 +65,13 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
 void cal_forward_kinematics(float wl_rad_s, float wb_rad_s, float wr_rad_s,
                              float *x_velocity, float *y_velocity, float *angular_velocity);
 
-float rotate_on_axis(bool cw, float wb_rad_s, float angle_deg, enum movements_num *movements);
+/**
+ * @brief Rotate the robot on its axis for a specified duration.
+ * @param cw True if clockwise rotation, false for counter-clockwise.
+ * @param wb_rad_s Angular velocity in rad/s.
+ * @param duration_seconds Duration of rotation in seconds.
+ * @param movements Pointer to the current movement state.
+ * @return Angular velocity to apply (with direction).
+ */
+float rotate_on_axis(bool cw, float wb_rad_s, float duration_seconds, enum movements_num *movements);
 #endif // MOV_CALCULATION_H

@@ -46,17 +46,17 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
     {
     case 0: // Left wheel at 150°
         // vector unitario = (sin150, cos150) = (0.5, -0.866)
-        *wheel_velocity = -scale * ( sin_d * x_velocity  - cos_d * y_velocity + R * wb ) / 2.5;
+        *wheel_velocity = -scale * ( sin_d * x_velocity  - cos_d * y_velocity + ROBOT_RADIUS * wb ) / 2.8;
         break;
 
     case 1: // Back wheel at 270°
         // vector = (sin270, cos270) = (-1, 0)
-        *wheel_velocity = scale * ( -1.0f * x_velocity + R * wb ) / 2;
+        *wheel_velocity = scale * ( -1.0f * x_velocity + ROBOT_RADIUS * wb ) / 2;
         break;
 
     case 2: // Right wheel at 30°
         // vector = (sin30, cos30) = (0.5, 0.866)
-        *wheel_velocity = scale * ( sin_d * x_velocity + cos_d * y_velocity + R * wb ) / 2.8;
+        *wheel_velocity = scale * ( sin_d * x_velocity + cos_d * y_velocity + ROBOT_RADIUS * wb ) / 2.8;
         break;
 
     default:
@@ -65,25 +65,31 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
     }
 }
 
-float rotate_on_axis(bool cw, float wb_rad_s, float angle_deg, enum movements_num *movements)
-{
-    static float t;
-    float dir = cw ? -1.0f : 1.0f;
-    float wb = wb_rad_s * dir;
-
-    float angle_rad  = angle_deg * PI / 180.0f;
-    float total_time = fabsf(angle_rad / wb_rad_s);
-
-    if (t < total_time) {
-        t += 0.0007;
-        return wb;   // aún girando
-    } else {
-        t = 0;
-        *movements = DO_NOT_MOVE;
-        return 0.0f; // terminó el giro
+float rotate_on_axis(bool cw, float wb, float duration_seconds, enum movements_num *movement) {
+    static float accumulated_time = 0.0f;
+    static bool rotation_initialized = false;
+    
+    const float CONTROL_PERIOD = 0.005f;  // 5ms
+    
+    // Initialize on first call
+    if (!rotation_initialized) {
+        accumulated_time = 0.0f;
+        rotation_initialized = true;
     }
+    
+    accumulated_time += CONTROL_PERIOD;
+    
+    // Check if rotation duration has been reached
+    if (accumulated_time >= duration_seconds) {
+        *movement = DO_NOT_MOVE;
+        accumulated_time = 0.0f;
+        rotation_initialized = false;
+        return 0.0f;  // Stop rotation
+    }
+    
+    // Return constant angular velocity (direction handled by cw flag)
+    return cw ? -wb : wb;
 }
-
 void cal_forward_kinematics(float vl_cm_s, float vb_cm_s, float vr_cm_s,
                              float *x_velocity, float *y_velocity, float *angular_velocity)
 {

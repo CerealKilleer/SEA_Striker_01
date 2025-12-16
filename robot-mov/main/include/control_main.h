@@ -270,7 +270,7 @@ void vTaskGlobalControl(void * pvParameters);
  * 
  * @param pvParameters 
  */
-void vTaskAllWheeelControl(void * pvParameters);
+void vTaskAllWheelsControl(void * pvParameters);
 
 /**
  * @brief udp server task to handle incoming requests
