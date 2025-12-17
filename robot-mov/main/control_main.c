@@ -138,11 +138,11 @@ pid_parameter_t pid_yvel_param = {
 };
 
 pid_parameter_t pid_wb_param = {
-    .kp = 0.05f,
-    .ki = 0.000f,
-    .kd = 0.0f,
-    .max_output = 3.0f,
-    .min_output = -3.0f,
+    .kp = 0.8f,        // Increased for faster yaw correction response
+    .ki = 0.05f,       // Small integral to eliminate steady-state error
+    .kd = 0.02f,       // Small derivative for smooth control
+    .max_output = 5.0f,   // Increased upper limit
+    .min_output = -5.0f,  // Increased lower limit
     .set_point = 0.0f,
     .cal_type = PID_CAL_TYPE_POSITIONAL,
     .beta = 0.0f
@@ -170,6 +170,11 @@ bool cw;
 // float wb;
 
 enum movements_num movement; ///< Movement type
+
+// ================== YAW CONTROL VARIABLES ==================
+float initial_yaw = 0.0f;           ///< Initial yaw angle when movement starts
+bool yaw_initialized = false;       ///< Flag to indicate if initial yaw has been captured
+
 // ================== INITIALIZATION FUNCTIONS ==================
 
 /**
@@ -305,6 +310,7 @@ void vTaskEncoderBack(void * pvParameters) {
 // ================== IMU READING TASK ==================
 
 void vTaskIMU(void * pvParameters) {
+    TickType_t last_wake_time = xTaskGetTickCount();
     control_params_t *params = (control_params_t *)pvParameters;
     imu_data_t *imu_data = (imu_data_t *)params->imu_data;
     uart_t *myUART = params->myUART;
@@ -353,7 +359,9 @@ void vTaskIMU(void * pvParameters) {
         }
 
         // TODO: Revisar período de lectura del IMU
-        vTaskDelay(pdMS_TO_TICKS(10)); // Delay for 10ms
+        //vTaskDelay(pdMS_TO_TICKS(10)); // Delay for 10ms
+        
+        vTaskDelayUntil(&last_wake_time, pdMS_TO_TICKS(TASK_IMU_PERIOD_MS));
     }
 }
 
@@ -378,8 +386,10 @@ void vTaskSensorFusion(void *pvParameters) {
     
     // Complementary filter weight (0.0 = trust yaw derivative only, 1.0 = trust gyro only)
     // Typical values: 0.95-0.98 for gyro bias
-    const float ALPHA_GYRO = 0.2f;  // High trust in gyro for short-term accuracy
+    const float ALPHA_GYRO = 0.98f;  // High trust in gyro for short-term accuracy
     const float ALPHA_YAW = 1.0f - ALPHA_GYRO;  // Low trust in yaw derivative (noisy but drift-free)
+
+    float wb_fused = 0.0f, current_yaw = 0.0f, delta_yaw = 0.0f, wb_from_yaw = 0.0f;
 
     while (1) {
         // Wait for notification (triggered by timer interrupt every 10ms)
@@ -402,8 +412,6 @@ void vTaskSensorFusion(void *pvParameters) {
         imu_vy = imu_data.vel_Y;
         
         // ========== COMPLEMENTARY FILTER FOR ANGULAR VELOCITY ==========
-        float wb_fused;
-        float current_yaw;
         
         // Read current yaw
         xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
@@ -417,7 +425,7 @@ void vTaskSensorFusion(void *pvParameters) {
             first_run = false;
         } else {
             // Calculate angular velocity from yaw derivative
-            float delta_yaw = current_yaw - prev_yaw;
+            delta_yaw = current_yaw - prev_yaw;
             
             // Handle yaw wraparound (360° -> 0° or 0° -> 360°)
             if (delta_yaw > 180.0f) {
@@ -427,7 +435,7 @@ void vTaskSensorFusion(void *pvParameters) {
             }
             
             // Convert yaw derivative to rad/s
-            float wb_from_yaw = (delta_yaw * PI / 180.0f) / SENSOR_FUSION_PERIOD;
+            wb_from_yaw = (delta_yaw * PI / 180.0f) / SENSOR_FUSION_PERIOD;
             
             // Complementary filter: combine gyro (short-term) + yaw derivative (long-term)
             // This corrects gyro drift while maintaining high-frequency response
@@ -465,6 +473,23 @@ void vTaskSensorFusion(void *pvParameters) {
 }
 
 // ================== GLOBAL CONTROL TASK ==================
+
+// ================== YAW CONTROL HELPER FUNCTIONS ==================
+
+/**
+ * @brief Normalize angle difference to [-180, 180] range
+ * @param angle_error Angle error in degrees
+ * @return Normalized angle in degrees
+ */
+static float normalize_angle_error(float angle_error) {
+    while (angle_error > 180.0f) {
+        angle_error -= 360.0f;
+    }
+    while (angle_error < -180.0f) {
+        angle_error += 360.0f;
+    }
+    return angle_error;
+}
 
 // void vTaskGlobalControl(void *pvParameters) {
 //     global_control_params_t *params = (global_control_params_t *)pvParameters;
@@ -648,7 +673,7 @@ void vTaskGlobalControl(void *pvParameters) {
     TaskHandle_t xTask = xTaskGetCurrentTaskHandle();
     const char *task_name = pcTaskGetName(xTask);
 
-    float v_x_measured, v_y_measured, v_wb_measured;
+    float v_x_measured, v_y_measured, v_wb_measured, current_yaw;
     float v_x_setpoint = 0.0f, v_y_setpoint = 0.0f, v_wb_setpoint = 0.0f;
     float v_x_output, v_y_output, v_wb_output;
     float right_target, left_target, back_target;
@@ -658,6 +683,11 @@ void vTaskGlobalControl(void *pvParameters) {
     const float VELOCITY_DEADBAND = 0.5f;
     const float ANGULAR_DEADBAND = 0.1f;
     const float CONTROL_PERIOD = 0.005f;  // 5ms
+    
+    // ========== YAW CONTROL PARAMETERS ==========
+    const float YAW_ERROR_THRESHOLD = 2.0f;  // Degrees - only correct if error > threshold
+    float yaw_error_deg = 0.0f;
+    float yaw_correction_rad_s = 0.0f;
     
     // ========== Time tracking for movements ==========
     static float circular_time_accum = 0.0f;
@@ -680,26 +710,49 @@ void vTaskGlobalControl(void *pvParameters) {
             accumulated_angle = 0.0f;
             accumulated_time = 0.0f;
             
+            // ========== RESET YAW CONTROL ==========
+            yaw_initialized = false;
+            
             ESP_LOGI(task_name, "Movement changed: %d -> %d, state reset", prev_movement, movement);
             prev_movement = movement;
         }
 
-        // Read measured body velocities
+        // Read measured body velocities and current yaw
         xSemaphoreTake(body_measurements_mutex, portMAX_DELAY);
         v_x_measured = body_measurements.v_x_measured;
         v_y_measured = body_measurements.v_y_measured;
         v_wb_measured = body_measurements.v_wb_measured;
+        current_yaw = body_measurements.yaw;
         xSemaphoreGive(body_measurements_mutex);
+
+        // ========== CAPTURE INITIAL YAW FOR LINEAR AND CIRCULAR MOVEMENTS ==========
+        if ((movement == LINEAR || movement == CIRCULAR) && !yaw_initialized) {
+            initial_yaw = current_yaw;
+            yaw_initialized = true;
+            ESP_LOGI(task_name, "Initial yaw captured: %.2f°", initial_yaw);
+        }
 
         switch (movement) {
             case LINEAR:
                 xSemaphoreTake(velocity_setpoints_mutex, portMAX_DELAY);
                 v_x_setpoint = velocity_setpoints.v_x_setpoint;
                 v_y_setpoint = velocity_setpoints.v_y_setpoint;
-                v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
+                v_wb_setpoint = velocity_setpoints.v_wb_setpoint;  // Will be overridden by yaw correction
                 xSemaphoreGive(velocity_setpoints_mutex);
                 
                 accumulated_time += CONTROL_PERIOD;
+                
+                // ========== YAW CORRECTION FOR LINEAR MOVEMENT ==========
+                yaw_error_deg = normalize_angle_error(initial_yaw - current_yaw);
+                
+                if (fabs(yaw_error_deg) > YAW_ERROR_THRESHOLD) {
+                    // Calculate correction angular velocity (proportional to error)
+                    // Positive error means robot rotated CCW, need CW correction (negative wb)
+                    yaw_correction_rad_s = yaw_error_deg * (PI / 180.0f) * 0.5f;  // P-gain of 0.5
+                    v_wb_setpoint = yaw_correction_rad_s;
+                } else {
+                    v_wb_setpoint = 0.0f;
+                }
                 
                 if (goal_time > 0.0f && accumulated_time >= goal_time) {
                     movement = DO_NOT_MOVE;
@@ -751,10 +804,22 @@ void vTaskGlobalControl(void *pvParameters) {
                 v_wb_setpoint = velocity_setpoints.v_wb_setpoint;
                 xSemaphoreGive(velocity_setpoints_mutex);
                 
+                // ========== YAW CORRECTION FOR CIRCULAR MOVEMENT ==========
+                yaw_error_deg = normalize_angle_error(initial_yaw - current_yaw);
+                
+                if (fabs(yaw_error_deg) > YAW_ERROR_THRESHOLD) {
+                    // Calculate correction angular velocity
+                    yaw_correction_rad_s = yaw_error_deg * (PI / 180.0f) * 0.5f;  // P-gain of 0.5
+                    v_wb_setpoint = yaw_correction_rad_s;
+                } else {
+                    v_wb_setpoint = 0.0f;
+                }
+                
                 // Log progress
                 if (control_iterations % 20 == 0) {  // Every ~100ms
-                    ESP_LOGD(task_name, "Circular progress: %.2fs / %.2fs (%.1f%%)", 
-                             circular_time_accum, total_time, (circular_time_accum / total_time) * 100.0f);
+                    ESP_LOGD(task_name, "Circular progress: %.2fs / %.2fs (%.1f%%) | Yaw error: %.2f°", 
+                             circular_time_accum, total_time, (circular_time_accum / total_time) * 100.0f,
+                             yaw_error_deg);
                 }
                 break;
 
@@ -841,6 +906,12 @@ void vTaskGlobalControl(void *pvParameters) {
                      v_x_measured, v_y_measured, v_wb_measured);
             ESP_LOGI(task_name, "Targets -> X: %.2f, Y: %.2f, W: %.2f",
                      v_x_output, v_y_output, v_wb_output);
+            
+            // ========== LOG YAW INFO FOR LINEAR AND CIRCULAR ==========
+            if (movement == LINEAR || movement == CIRCULAR) {
+                ESP_LOGI(task_name, "Yaw Control -> Initial: %.2f°, Current: %.2f°, Error: %.2f°, Correction: %.4f rad/s",
+                         initial_yaw, current_yaw, yaw_error_deg, yaw_correction_rad_s);
+            }
             
             if (movement == LINEAR && goal_time > 0.0f) {
                 ESP_LOGI(task_name, "Linear progress: %.2fs / %.2fs",

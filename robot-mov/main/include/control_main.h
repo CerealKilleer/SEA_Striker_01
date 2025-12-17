@@ -23,6 +23,8 @@
 #include "freertos/semphr.h"
 #include "driver/gptimer.h"
 #include "esp_http_server.h"
+
+#define TASK_IMU_PERIOD_MS 10 ///< IMU task period in milliseconds
 #define SAMPLE_TIME 4 ///< Sample time in ms
 #define WHEEL_RADIO 3.0f ///< Radio of the wheel in cm
 
