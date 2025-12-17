@@ -51,7 +51,7 @@ void cal_lin_to_ang_velocity(float x_velocity, float y_velocity, float wb,
 
     case 1: // Back wheel at 270°
         // vector = (sin270, cos270) = (-1, 0)
-        *wheel_velocity = scale * ( -1.0f * x_velocity + ROBOT_RADIUS * wb ) / 2;
+        *wheel_velocity = scale * ( -1.0f * x_velocity + ROBOT_RADIUS * wb ) / 2.55;
         break;
 
     case 2: // Right wheel at 30°

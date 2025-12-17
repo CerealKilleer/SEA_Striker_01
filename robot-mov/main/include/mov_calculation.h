@@ -10,7 +10,7 @@
 #define DELTA PI/6.0  ///< Angle in degrees for the transformation (orientation angle of the body)
 #define N     16      ///< Reduction factor for the transformation (planetary gear ratio)
 #define R     3.25f   ///< Radius of the wheel in cm
-#define ROBOT_RADIUS 8.0f  ///< Distance from robot center to each wheel in cm
+#define ROBOT_RADIUS 8.5f  ///< Distance from robot center to each wheel in cm
 
 enum movements_num {
     LINEAR = 0,   ///< Linear movement
